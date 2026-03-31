@@ -1,0 +1,214 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          request.auth.uid == "wyBJq70cuaMkdwjTWTzpfDfrFNj1" ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+          (request.auth.token.email == "aielotpangyak@gmail.com" && request.auth.token.email_verified == true)
+        );
+    }
+    
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidTransaction() {
+      let data = request.resource.data;
+      let allowedFields = ['userId', 'amount', 'reward', 'total', 'type', 'reason', 'status', 'createdAt'];
+      return hasOnlyAllowedFields(allowedFields) &&
+             data.userId is string &&
+             data.amount is number &&
+             data.type in ['Buy', 'Referral', 'TeamBonus', 'Reward', 'Withdraw', 'Order'] &&
+             data.status is string &&
+             data.createdAt is string;
+    }
+
+    match /users/{userId} {
+      function isValidUser() {
+        let data = request.resource.data;
+        let allowedFields = [
+          'uid', 'shortId', 'role', 'mobile', 'eCoinBalance', 'createdAt', 
+          'referrerId', 'totalEarnings', 'todayEarnings', 'newbieBonusCompleted', 
+          'newbieRewardClaimed', 'dailyBonusClaimedAt', 'claimedNewbieRewards',
+          'todayProfit', 'transactionAmount', 'hasBoughtAnyAmount',
+          'dailyTeamCommission', 'lastCommissionDate', 'dailyBonusClaimedDate',
+          'telegramJoined', 'instagramFollowed'
+        ];
+        return hasOnlyAllowedFields(allowedFields) &&
+               (!('uid' in data) || (data.uid is string && data.uid.size() < 128)) &&
+               (!('shortId' in data) || (data.shortId is string && data.shortId.size() <= 10)) &&
+               (!('role' in data) || data.role in ['user', 'admin']) &&
+               (!('mobile' in data) || (data.mobile is string && data.mobile.size() >= 10 && data.mobile.size() <= 15)) &&
+               (!('eCoinBalance' in data) || data.eCoinBalance is number) &&
+               (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() < 64)) &&
+               (!('referrerId' in data) || (data.referrerId is string && data.referrerId.size() < 128)) &&
+               (!('totalEarnings' in data) || data.totalEarnings is number) &&
+               (!('todayEarnings' in data) || data.todayEarnings is number) &&
+               (!('newbieBonusCompleted' in data) || data.newbieBonusCompleted is bool) &&
+               (!('newbieRewardClaimed' in data) || data.newbieRewardClaimed is bool) &&
+               (!('dailyBonusClaimedAt' in data) || (data.dailyBonusClaimedAt is string && data.dailyBonusClaimedAt.size() < 64)) &&
+               (!('claimedNewbieRewards' in data) || data.claimedNewbieRewards is list) &&
+               (!('todayProfit' in data) || data.todayProfit is number) &&
+               (!('transactionAmount' in data) || data.transactionAmount is number) &&
+               (!('hasBoughtAnyAmount' in data) || data.hasBoughtAnyAmount is bool) &&
+               (!('dailyTeamCommission' in data) || data.dailyTeamCommission is number) &&
+               (!('lastCommissionDate' in data) || (data.lastCommissionDate is string && data.lastCommissionDate.size() < 64)) &&
+               (!('dailyBonusClaimedDate' in data) || (data.dailyBonusClaimedDate is string && data.dailyBonusClaimedDate.size() < 64)) &&
+               (!('telegramJoined' in data) || data.telegramJoined is bool) &&
+               (!('instagramFollowed' in data) || data.instagramFollowed is bool);
+      }
+      
+      allow get: if true; // Allow looking up referrers by UID
+      allow list: if isAuthenticated() && (isAdmin() || (resource != null && resource.data.referrerId == request.auth.uid));
+      allow create: if isAuthenticated() && (isOwner(userId) || isAdmin()) && (isAdmin() || (isValidUser() && request.resource.data.role == 'user'));
+      allow update: if isAuthenticated() && (isAdmin() || (isValidUser() && (
+        isOwner(userId) || 
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shortId']) && (!('shortId' in resource.data) || resource.data.shortId == null))
+      )));
+    }
+
+    match /short_ids/{shortId} {
+      allow read: if true; // Publicly readable for invitation code lookup
+      allow write: if isAuthenticated() && (
+        request.auth.uid == request.resource.data.uid || 
+        isAdmin() || 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.referrerId == request.resource.data.uid)
+      );
+    }
+
+    match /commissions/{commissionId} {
+      function isValidCommission() {
+        let data = request.resource.data;
+        return data.receiverId is string &&
+               data.fromUserId is string &&
+               data.amount is number &&
+               data.level is number &&
+               data.purchaseAmount is number &&
+               data.createdAt is string &&
+               (!('type' in data) || data.type is string);
+      }
+
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.receiverId || isAdmin());
+      allow create: if false; // Only created by backend
+      allow update: if false; // Never updated
+      allow delete: if false; // Never deleted
+    }
+
+    match /upi_accounts/{accountId} {
+      function isValidUpiAccount() {
+        let data = request.resource.data;
+        return data.userId is string &&
+               data.type in ['Buy', 'Sell'] &&
+               data.status in ['Active', 'Inactive'] &&
+               data.createdAt is string &&
+               (!('method' in data) || data.method in ['UPI', 'Bank']) &&
+               (!('partnerId' in data) || data.partnerId is string) &&
+               (!('partnerName' in data) || data.partnerName is string) &&
+               (!('name' in data) || data.name is string) &&
+               (!('phone' in data) || data.phone is string) &&
+               (!('upiId' in data) || data.upiId is string) &&
+               (!('bankAccNo' in data) || data.bankAccNo is string) &&
+               (!('bankIfsc' in data) || data.bankIfsc is string) &&
+               (!('bankName' in data) || data.bankName is string);
+      }
+      
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId && isValidUpiAccount();
+      allow update: if isAuthenticated() && isDocOwner() && isValidUpiAccount() &&
+                    request.resource.data.userId == resource.data.userId &&
+                    request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    match /sell_requests/{requestId} {
+      function isValidSellRequest() {
+        let data = request.resource.data;
+        return data.userId is string &&
+               data.amount is number &&
+               data.amount > 0 &&
+               data.accountId is string &&
+               data.accountDetails is map &&
+               data.status in ['Pending', 'Approved', 'Rejected'] &&
+               data.createdAt is string;
+      }
+
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId && isValidSellRequest();
+      allow update: if isAdmin(); // Only admins can approve/reject
+    }
+
+    match /buy_orders/{orderId} {
+      function isValidBuyOrder() {
+        let data = request.resource.data;
+        return data.orderNo is string &&
+               data.price is number &&
+               data.reward is number &&
+               data.itoken is number &&
+               data.type in ['UPI', 'Bank'] &&
+               data.status in ['Available', 'Sold', 'Processing'] &&
+               data.createdAt is string;
+      }
+
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (
+        isAuthenticated() && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+        resource.data.status == 'Available' &&
+        request.resource.data.status == 'Processing'
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /buy_requests/{requestId} {
+      function isValidBuyRequest() {
+        let data = request.resource.data;
+        let allowedFields = ['userId', 'orderId', 'amount', 'status', 'createdAt', 'orderNo', 'utr', 'updatedAt'];
+        return hasOnlyAllowedFields(allowedFields) &&
+               data.userId is string &&
+               data.orderId is string &&
+               data.amount is number &&
+               data.status in ['Pending', 'Approved', 'Rejected'] &&
+               data.createdAt is string;
+      }
+
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId && isValidBuyRequest();
+      allow update: if isAdmin();
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+    }
+
+    // Settings rules
+    match /settings/{settingId} {
+      allow read: if true; // Publicly readable
+      allow write: if isAdmin(); // Only admin can write
+    }
+
+    // Transactions
+    match /transactions/{transactionId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow write: if isAdmin(); // Only admin can write (usually via backend)
+    }
+  }
+}

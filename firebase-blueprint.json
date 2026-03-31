@@ -1,0 +1,183 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "shortId": { "type": "string", "description": "6-character alphanumeric UID" },
+        "role": { "type": "string", "enum": ["user", "admin"], "description": "User role" },
+        "mobile": { "type": "string", "description": "User mobile number" },
+        "eCoinBalance": { "type": "number", "description": "User e-coin balance" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "role", "createdAt"]
+    },
+    "UpiAccount": {
+      "title": "UpiAccount",
+      "description": "Linked UPI or Bank accounts for Buy/Sell",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner UID" },
+        "type": { "type": "string", "enum": ["Buy", "Sell"], "description": "Account type" },
+        "method": { "type": "string", "enum": ["UPI", "Bank"], "description": "Sell method" },
+        "partnerId": { "type": "string", "description": "Partner ID for Buy" },
+        "partnerName": { "type": "string", "description": "Partner Name for Buy" },
+        "name": { "type": "string", "description": "Account holder name" },
+        "phone": { "type": "string", "description": "Phone number for Buy" },
+        "upiId": { "type": "string", "description": "UPI ID for Sell" },
+        "bankAccNo": { "type": "string", "description": "Bank Account Number" },
+        "bankIfsc": { "type": "string", "description": "Bank IFSC Code" },
+        "bankName": { "type": "string", "description": "Bank Name" },
+        "status": { "type": "string", "enum": ["Active", "Inactive"], "description": "Status" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "status", "createdAt"]
+    },
+    "SellRequest": {
+      "title": "SellRequest",
+      "description": "Request to sell E-Coins for cash",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "User UID" },
+        "amount": { "type": "number", "description": "Amount in ₹" },
+        "accountId": { "type": "string", "description": "ID of the linked account" },
+        "accountDetails": { "type": "object", "description": "Copy of the account details" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"], "description": "Request status" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "accountId", "accountDetails", "status", "createdAt"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Global application settings",
+      "type": "object",
+      "properties": {
+        "newsText": { "type": "string", "description": "Scrolling news text" },
+        "tutorialVideos": { "type": "array", "items": { "type": "string" }, "description": "List of tutorial video URLs" },
+        "banners": { "type": "array", "items": { "type": "string" }, "description": "List of banner image URLs" },
+        "careIds": { "type": "array", "items": { "type": "string" }, "description": "List of support IDs" },
+        "newbieRewardAmount": { "type": "number", "description": "Amount for newbie reward" },
+        "telegramLink": { "type": "string", "description": "Telegram channel link" },
+        "instagramLink": { "type": "string", "description": "Instagram profile link" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["newsText", "updatedAt"]
+    },
+    "BuyOrder": {
+      "title": "BuyOrder",
+      "description": "Orders created by admin for users to buy",
+      "type": "object",
+      "properties": {
+        "orderNo": { "type": "string", "description": "Unique order number" },
+        "price": { "type": "number", "description": "Order price" },
+        "reward": { "type": "number", "description": "Reward amount (4.5%)" },
+        "itoken": { "type": "number", "description": "Total tokens (price + reward)" },
+        "type": { "type": "string", "enum": ["UPI", "Bank"], "description": "Payment type" },
+        "upiId": { "type": "string", "description": "UPI ID for payment" },
+        "bankName": { "type": "string", "description": "Bank name" },
+        "bankAccNo": { "type": "string", "description": "Bank account number" },
+        "bankIfsc": { "type": "string", "description": "Bank IFSC code" },
+        "payeeName": { "type": "string", "description": "Name of the person to pay" },
+        "status": { "type": "string", "enum": ["Available", "Sold", "Processing"], "description": "Order status" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderNo", "price", "reward", "itoken", "type", "status", "createdAt"]
+    },
+    "BuyRequest": {
+      "title": "BuyRequest",
+      "description": "User request after paying for a buy order",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "User UID" },
+        "orderId": { "type": "string", "description": "ID of the BuyOrder" },
+        "amount": { "type": "number", "description": "Amount paid" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"], "description": "Request status" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "orderNo": { "type": "string", "description": "Order number from BuyOrder" },
+        "utr": { "type": "string", "description": "UTR number for payment" }
+      },
+      "required": ["userId", "orderId", "amount", "status", "createdAt"]
+    },
+    "Commission": {
+      "title": "Commission",
+      "description": "Referral commission earned by a user",
+      "type": "object",
+      "properties": {
+        "receiverId": { "type": "string", "description": "User UID receiving the commission" },
+        "fromUserId": { "type": "string", "description": "User UID who made the purchase" },
+        "amount": { "type": "number", "description": "Commission amount" },
+        "level": { "type": "number", "description": "Referral level (1, 2, or 3)" },
+        "purchaseAmount": { "type": "number", "description": "Original purchase amount" },
+        "type": { "type": "string", "description": "Type of commission (e.g., fixed_bonus)" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["receiverId", "fromUserId", "amount", "level", "purchaseAmount", "createdAt"]
+    },
+    "ShortId": {
+      "title": "ShortId",
+      "description": "Mapping of shortId to user UID for public lookup",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User UID" },
+        "shortId": { "type": "string", "description": "6-character alphanumeric ID" }
+      },
+      "required": ["uid", "shortId"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "User transaction record for activity history",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "User UID" },
+        "amount": { "type": "number", "description": "Transaction amount" },
+        "reward": { "type": "number", "description": "Reward or bonus amount" },
+        "total": { "type": "number", "description": "Total amount (amount + reward)" },
+        "type": { "type": "string", "enum": ["Buy", "Referral", "TeamBonus", "Reward", "Withdraw", "Order"], "description": "Transaction type" },
+        "reason": { "type": "string", "description": "Description of the transaction" },
+        "status": { "type": "string", "description": "Transaction status" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "type", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles"
+    },
+    "/short_ids/{shortId}": {
+      "schema": { "$ref": "#/entities/ShortId" },
+      "description": "Public mapping for invitation codes"
+    },
+    "/upi_accounts/{accountId}": {
+      "schema": { "$ref": "#/entities/UpiAccount" },
+      "description": "Stores linked UPI and bank accounts"
+    },
+    "/sell_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/SellRequest" },
+      "description": "Stores sell requests"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/Settings" },
+      "description": "Stores global application settings"
+    },
+    "/buy_orders/{orderId}": {
+      "schema": { "$ref": "#/entities/BuyOrder" },
+      "description": "Stores buy orders created by admin"
+    },
+    "/buy_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/BuyRequest" },
+      "description": "Stores user buy requests for approval"
+    },
+    "/commissions/{commissionId}": {
+      "schema": { "$ref": "#/entities/Commission" },
+      "description": "Stores referral commissions"
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Stores user transaction history"
+    }
+  }
+}
