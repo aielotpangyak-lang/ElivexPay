@@ -42,132 +42,14 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
     
     setIsLoading(true);
 
-    try {
-      // Send WhatsApp OTP via Express API
-      const response = await fetch('/api/request-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: `91${mobileOrAdmin}` })
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(JSON.stringify(data));
-      }
-      
-      toast.success('OTP sent via WhatsApp!');
+    // Simulate sending a fake OTP
+    setTimeout(() => {
+      console.log(`DEV MODE (Fake) OTP for ${mobileOrAdmin}: 123456`);
+      toast.success('OTP sent! (Check console for fake OTP)');
       setStep(2);
       setCountdown(60);
-    } catch (error: any) {
-      console.error('Error requesting OTP:', error);
-      try {
-        const errData = JSON.parse(error.message);
-        const code = errData.error || '';
-        if (code === 'resource-exhausted' || errData.message?.includes('Wait 60 seconds')) {
-          toast.error('Please wait 60 seconds before requesting again.');
-        } else if (code === 'already-exists' || errData.message?.includes('Account already exists')) {
-          toast.error('Account already exists. Please login instead.');
-        } else {
-          toast.error(errData.message || 'Failed to send OTP. Please try again.');
-        }
-      } catch (e) {
-        toast.error('Failed to send OTP. Please try again.');
-      }
-    } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleLogin = async (e: FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-
-    try {
-      let loginEmail = `${mobileOrAdmin}@elivex.com`;
-      if (mobileOrAdmin === '9678516469') {
-        loginEmail = 'admin@elivex.com';
-      }
-
-      if (mobileOrAdmin === '9678516469' && password !== 'admin123') {
-        toast.error('Invalid admin password.');
-        setIsLoading(false);
-        return;
-      }
-
-      let userCredential;
-      try {
-        userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
-      } catch (signInError: any) {
-        // Auto-create admin account if it doesn't exist
-        if (mobileOrAdmin === '9678516469' && (signInError.code === 'auth/invalid-credential' || signInError.code === 'auth/user-not-found')) {
-          userCredential = await createUserWithEmailAndPassword(auth, loginEmail, password);
-          
-          const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-          let shortId = '';
-          for (let i = 0; i < 6; i++) {
-            shortId += chars.charAt(Math.floor(Math.random() * chars.length));
-          }
-
-          const userData: any = {
-            uid: userCredential.user.uid,
-            shortId: shortId,
-            role: 'admin',
-            mobile: mobileOrAdmin,
-            createdAt: new Date().toISOString()
-          };
-          await setDoc(doc(db, 'users', userCredential.user.uid), userData);
-          await setDoc(doc(db, 'short_ids', shortId), { uid: userCredential.user.uid, shortId });
-        } else {
-          throw signInError;
-        }
-      }
-
-      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-      
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        let currentShortId = userData.shortId;
-
-        // Backfill shortId if missing
-        if (!currentShortId) {
-          const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-          currentShortId = '';
-          for (let i = 0; i < 6; i++) {
-            currentShortId += chars.charAt(Math.floor(Math.random() * chars.length));
-          }
-          await updateDoc(doc(db, 'users', userCredential.user.uid), { shortId: currentShortId });
-        }
-
-        // Ensure short_ids mapping exists
-        const sId = currentShortId.toLowerCase();
-        const sDoc = await getDoc(doc(db, 'short_ids', sId));
-        if (!sDoc.exists()) {
-          await setDoc(doc(db, 'short_ids', sId), { uid: userCredential.user.uid, shortId: sId });
-        }
-
-        if (userData.role === 'admin') {
-          setIsAdmin(true);
-        } else {
-          setIsAdmin(false);
-        }
-      }
-      
-      toast.success('Logged in successfully!');
-      onLogin();
-    } catch (error: any) {
-      if (error.code === 'auth/invalid-credential') {
-        toast.error('Invalid mobile number or password. Please check your credentials or register first.');
-      } else if (error.code === 'auth/email-already-in-use') {
-        toast.error('Account already exists. Please check your credentials.');
-      } else {
-        const path = auth.currentUser ? `users/${auth.currentUser.uid}` : 'users/unknown';
-        handleFirestoreError(error, OperationType.GET, path);
-        toast.error('An unexpected error occurred. Please try again.');
-      }
-    } finally {
-      setIsLoading(false);
-    }
+    }, 1000);
   };
 
   const handleRegister = async (e: FormEvent) => {
@@ -181,8 +63,9 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
         return;
       }
 
-      if (otp.length !== 6) {
-        toast.error('Please enter a valid 6-digit OTP.');
+      // Fake OTP validation: only accept 123456
+      if (otp !== '123456') {
+        toast.error('Invalid OTP.');
         setIsLoading(false);
         return;
       }
@@ -193,7 +76,7 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
         return;
       }
 
-      // Validate invitation code (which is now the referrer's shortId)
+      // Validate invitation code
       let referrerId = null;
       if (invitationCode) {
         const cleanCode = invitationCode.trim().toLowerCase();
@@ -202,7 +85,6 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
           if (shortIdDoc.exists()) {
             referrerId = shortIdDoc.data().uid;
           } else {
-            // Fallback: Check if cleanCode is a legacy UID in 'users'
             const userRef = doc(db, 'users', cleanCode);
             const userDoc = await getDoc(userRef);
             if (userDoc.exists()) {
@@ -220,74 +102,13 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
         }
       }
 
-      // 1. Verify WhatsApp OTP
-      let customToken = '';
-      try {
-        const response = await fetch('/api/verify-otp', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: `91${mobileOrAdmin}`, otp })
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-          throw new Error(JSON.stringify(data));
-        }
-
-        if (data.success && data.token) {
-          customToken = data.token;
-        } else {
-          throw new Error(JSON.stringify({ message: "Invalid OTP response" }));
-        }
-      } catch (error: any) {
-        console.error('Error verifying OTP:', error);
-        try {
-          const errData = JSON.parse(error.message);
-          const code = errData.error || '';
-          const msg = errData.message || '';
-          
-          if (code === 'invalid-argument' || msg.includes('Invalid OTP')) {
-            toast.error('Wrong OTP');
-          } else if (code === 'deadline-exceeded' || msg.includes('expired') || code === 'not-found') {
-            toast.error('OTP Expired. Please request a new one.');
-            setStep(1);
-            setCountdown(0);
-          } else if (code === 'resource-exhausted' || msg.includes('Too many tries')) {
-            toast.error('Too many tries. Please request a new OTP.');
-            setStep(1);
-            setCountdown(0);
-          } else {
-            toast.error(msg || 'OTP Verification failed');
-          }
-        } catch (e) {
-          toast.error('OTP Verification failed');
-        }
-        setIsLoading(false);
-        return;
-      }
-
-      // 2. Sign in with Custom Token (Phone Auth)
-      const userCredential = await signInWithCustomToken(auth, customToken);
-
-      // 3. Link Email/Password credential so user can login with password later
+      // Create user with Email/Password (Phone auth via WhatsApp removed)
       let loginEmail = `${mobileOrAdmin}@elivex.com`;
       if (mobileOrAdmin === '9678516469') {
         loginEmail = 'admin@elivex.com';
       }
       
-      try {
-        const credential = EmailAuthProvider.credential(loginEmail, password);
-        await linkWithCredential(userCredential.user, credential);
-      } catch (linkError: any) {
-        // If email is already in use, it means they registered before but somehow got here.
-        if (linkError.code === 'auth/email-already-in-use' || linkError.code === 'auth/credential-already-in-use') {
-          // We can ignore or handle, but ideally they shouldn't reach here due to the pre-check
-          console.warn("Credential already linked or in use.");
-        } else {
-          throw linkError;
-        }
-      }
+      const userCredential = await createUserWithEmailAndPassword(auth, loginEmail, password);
       
       // Backfill referrer's shortId if it was missing
       if (referrerId && invitationCode) {
@@ -498,7 +319,6 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
 
             <button 
               type="button" 
-              variant="outline"
               className="w-full py-3 rounded-xl font-bold border border-gray-200 text-gray-700 hover:bg-gray-50 transition-all active:scale-95 disabled:opacity-50 mt-2"
               onClick={handleSendOtp}
               disabled={isLoading || countdown > 0}

@@ -5,18 +5,23 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import axios from "axios";
 import * as crypto from "crypto";
-import firebaseConfig from "../firebase-applet-config.json" with { type: "json" };
 
 // Initialize Firebase Admin if not already initialized
 if (!getApps().length) {
   try {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (serviceAccount) {
+      const sa = JSON.parse(serviceAccount);
+      console.log("Service account project ID:", sa.project_id);
       initializeApp({
-        credential: cert(JSON.parse(serviceAccount)),
+        credential: cert(sa),
+        projectId: sa.project_id
       });
+      console.log("Firebase initialized with project:", sa.project_id);
     } else {
+      console.warn("FIREBASE_SERVICE_ACCOUNT environment variable is missing. Attempting to initialize with default credentials.");
       initializeApp();
+      console.log("Firebase initialized with default credentials.");
     }
   } catch (error) {
     console.error("Firebase initialization error", error);
@@ -24,6 +29,7 @@ if (!getApps().length) {
 }
 
 const db = getFirestore();
+console.log("Firestore database name:", db.databaseId);
 const app = express();
 
 // Middleware
@@ -69,7 +75,15 @@ app.post("/api/request-otp", async (req, res) => {
 
     // Check if user already exists
     const mobile = phone.substring(2);
-    const userQuery = await db.collection('users').where('mobile', '==', mobile).get();
+    console.log("Querying users collection for mobile:", mobile);
+    let userQuery;
+    try {
+      userQuery = await db.collection('users').where('mobile', '==', mobile).get();
+    } catch (e) {
+      console.error("Error querying users collection:", e);
+      throw e;
+    }
+    console.log("User query completed, empty:", userQuery.empty);
     if (!userQuery.empty) {
       return res.status(400).json({ error: "already-exists", message: "Account already exists. Please login instead." });
     }
@@ -79,15 +93,22 @@ app.post("/api/request-otp", async (req, res) => {
     const now = Timestamp.now();
 
     // 1. Check 60s Cooldown
-    const otpDoc = await otpRef.get();
-    if (otpDoc.exists) {
-      const otpData = otpDoc.data()!;
-      if (otpData.lastRequestAt) {
-        const secondsSinceLastRequest = now.seconds - otpData.lastRequestAt.seconds;
-        if (secondsSinceLastRequest < 60) {
-          return res.status(429).json({ error: "resource-exhausted", message: "Wait 60 seconds" });
+    console.log("Getting OTP doc for:", hashedPhone);
+    try {
+      const otpDoc = await otpRef.get();
+      console.log("OTP doc retrieved, exists:", otpDoc.exists);
+      if (otpDoc.exists) {
+        const otpData = otpDoc.data()!;
+        if (otpData.lastRequestAt) {
+          const secondsSinceLastRequest = now.seconds - otpData.lastRequestAt.seconds;
+          if (secondsSinceLastRequest < 60) {
+            return res.status(429).json({ error: "resource-exhausted", message: "Wait 60 seconds" });
+          }
         }
       }
+    } catch (e) {
+      console.error("Error getting OTP doc:", e);
+      throw e;
     }
 
     // 2. Generate OTP
@@ -122,12 +143,19 @@ app.post("/api/request-otp", async (req, res) => {
 
     // 4. Save to DB
     const expiresAt = new Timestamp(now.seconds + 120, now.nanoseconds);
-    await otpRef.set({
-      otp: hashedOtp,
-      expiresAt: expiresAt,
-      lastRequestAt: Timestamp.now(),
-      attempts: 0
-    });
+    console.log("Saving OTP to DB...");
+    try {
+      await otpRef.set({
+        otp: hashedOtp,
+        expiresAt: expiresAt,
+        lastRequestAt: Timestamp.now(),
+        attempts: 0
+      });
+      console.log("OTP saved to DB");
+    } catch (e) {
+      console.error("Error saving OTP to DB:", e);
+      throw e;
+    }
 
     return res.json({ success: true, message: "OTP sent successfully" });
   } catch (error: any) {

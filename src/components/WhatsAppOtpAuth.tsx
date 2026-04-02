@@ -32,21 +32,21 @@ export function WhatsAppOtpAuth({ onLogin }: WhatsAppOtpAuthProps) {
   }, [countdown]);
 
   const maskPhone = (p: string) => {
-    if (p.length !== 12) return p;
-    return `${p.substring(0, 2)}******${p.substring(8)}`;
+    if (p.length !== 10) return p;
+    return `91******${p.substring(6)}`;
   };
 
   const handleRequestOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (phone.length !== 12 || !phone.startsWith('91')) {
-      toast.error('Please enter a valid 12-digit number starting with 91');
+    if (phone.length !== 10) {
+      toast.error('Please enter a valid 10-digit number');
       return;
     }
 
     setIsLoading(true);
     try {
       const requestOtpFn = httpsCallable(functions, 'requestWhatsAppOtp');
-      await requestOtpFn({ phone });
+      await requestOtpFn({ phone: `91${phone}` });
       
       toast.success('OTP sent via WhatsApp!');
       setStep('otp');
@@ -75,7 +75,7 @@ export function WhatsAppOtpAuth({ onLogin }: WhatsAppOtpAuthProps) {
     setIsLoading(true);
     try {
       const verifyOtpFn = httpsCallable(functions, 'verifyWhatsAppOtp');
-      const result = await verifyOtpFn({ phone, otp });
+      const result = await verifyOtpFn({ phone: `91${phone}`, otp });
       
       const data = result.data as { success: boolean; token: string };
       
@@ -119,27 +119,28 @@ export function WhatsAppOtpAuth({ onLogin }: WhatsAppOtpAuthProps) {
         <form onSubmit={handleRequestOtp} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp Number</label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Phone className="h-5 w-5 text-gray-400" />
+            <div className="flex items-center">
+              <div className="px-3 py-2 bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-500 flex items-center">
+                <Phone className="h-5 w-5 text-gray-400 mr-2" />
+                <span>91</span>
               </div>
               <Input
                 type="tel"
-                placeholder="91XXXXXXXXXX"
+                placeholder="XXXXXXXXXX"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                className="pl-10"
-                maxLength={12}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').substring(0, 10))}
+                className="rounded-l-none"
+                maxLength={10}
                 required
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1">Include 91 country code without +</p>
+            <p className="text-xs text-gray-500 mt-1">Enter 10-digit number</p>
           </div>
           
           <Button 
             type="submit" 
             className="w-full bg-green-600 hover:bg-green-700 text-white"
-            disabled={isLoading || phone.length !== 12 || countdown > 0}
+            disabled={isLoading || phone.length !== 10 || countdown > 0}
           >
             {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : countdown > 0 ? `Wait ${countdown}s` : 'Send WhatsApp OTP'}
           </Button>

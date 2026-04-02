@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, getDocFromServer, onSnapshot } from 'firebase/firestore';
 import { auth, db } from './firebase';
+console.log("App initialized with auth:", !!auth, "and db:", !!db);
 import ErrorBoundary from './components/ErrorBoundary';
 import Auth from './components/Auth';
 import Home from './components/Home';
@@ -69,7 +70,7 @@ export default function App() {
         setIsLoggedIn(true);
         try {
           // One-time check for admin role
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          const userDoc = await getDocFromServer(doc(db, 'users', user.uid));
           if (userDoc.exists() && userDoc.data().role === 'admin') {
             setIsAdmin(true);
           } else {

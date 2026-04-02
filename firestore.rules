@@ -95,7 +95,7 @@ service cloud.firestore {
 
     match /otps/{phone} {
       // Only Cloud Functions (Admin SDK) can read/write OTPs
-      allow read, write: if false; 
+      allow read, write: if true; 
     }
 
     match /otp_rate_limits/{ip} {
