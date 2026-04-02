@@ -1,5 +1,4 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { defineSecret } from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import axios from "axios";
@@ -8,8 +7,9 @@ import * as crypto from "crypto";
 admin.initializeApp();
 const db = admin.firestore();
 
-const wawpToken = defineSecret("WAWP_TOKEN");
-const wawpInstanceId = defineSecret("WAWP_INSTANCE_ID");
+// Temporary hardcoded credentials for testing
+const WAWP_TOKEN = "DkpBNmcMj7CGzL";
+const WAWP_INSTANCE_ID = "ADC6ED9F51D2";
 
 // --- Security Helpers ---
 
@@ -43,7 +43,7 @@ async function sendWithRetry(body: any, headers: any, retries = 2) {
 }
 
 export const requestWhatsAppOtp = onCall(
-  { secrets: [wawpToken, wawpInstanceId], enforceAppCheck: true },
+  { enforceAppCheck: true },
   async (request) => {
     if (!request.app) {
       throw new HttpsError("permission-denied", "Unauthorized request.");
@@ -82,34 +82,18 @@ export const requestWhatsAppOtp = onCall(
     const hashedOtp = hashString(plainOtp);
 
     // 3. Send WhatsApp Message First (Perceived Speed)
-    let success = false;
-    try {
-      const token = wawpToken.value();
-      const instanceId = wawpInstanceId.value();
+    const body = {
+      instance_id: WAWP_INSTANCE_ID,
+      to: phone,
+      message: `OTP: ${plainOtp} (2 min)` // Short message for faster delivery
+    };
+    const headers = {
+      Authorization: `Bearer ${WAWP_TOKEN}`,
+      "Content-Type": "application/json",
+    };
 
-      if (token && instanceId) {
-        const body = {
-          instance_id: instanceId,
-          to: phone,
-          message: `OTP: ${plainOtp} (2 min)` // Short message for faster delivery
-        };
-        const headers = {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        };
-
-        success = await sendWithRetry(body, headers);
-      } else {
-        logger.warn("WAWP credentials empty. Falling back to DEV MODE.");
-        logger.info(`DEV MODE OTP for ${phone}: ${plainOtp}`);
-        success = true;
-      }
-    } catch (e: any) {
-      logger.warn("WAWP credentials not configured or error occurred. Falling back to DEV MODE.", { error: e.message });
-      logger.info(`DEV MODE OTP for ${phone}: ${plainOtp}`);
-      success = true;
-    }
-
+    const success = await sendWithRetry(body, headers);
+    
     if (!success) {
       throw new HttpsError("internal", "Failed to send WhatsApp message.");
     }
