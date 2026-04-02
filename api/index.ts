@@ -23,7 +23,7 @@ if (!getApps().length) {
   }
 }
 
-const db = getFirestore(getApp(), firebaseConfig.firestoreDatabaseId);
+const db = getFirestore();
 const app = express();
 
 // Middleware
