@@ -1,6 +1,6 @@
 import { Link as LinkIcon, Settings, FileText, AlertTriangle, PlusCircle, CreditCard, ChevronLeft, ChevronRight, CheckCircle2, Circle, Loader2, Building2, AtSign, Send, Coins, IndianRupee } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, increment } from 'firebase/firestore';
+import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, increment, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { useAppStore } from '../store';
 import toast from 'react-hot-toast';
@@ -11,6 +11,11 @@ const PARTNERS = [
   { id: 'mobikwik', name: 'Mobikwik', desc: 'MobiKwik is an Indian digital payment platform.', available: true, color: 'bg-indigo-100 text-indigo-600', icon: 'M' },
   { id: 'phonepe', name: 'PhonePe', desc: 'PhonePe is an Indian digital payment platform.', available: true, color: 'bg-purple-100 text-purple-600', icon: 'Pe' },
   { id: 'gpay', name: 'GPay', desc: 'Google Pay is a digital wallet platform and online payment system.', available: true, color: 'bg-blue-100 text-blue-600', icon: 'G' },
+  { id: 'freecharge', name: 'Freecharge', desc: 'Freecharge is an Indian digital payment platform.', available: true, color: 'bg-rose-100 text-rose-600', icon: 'Fc' },
+];
+
+const UPI_HANDLES = [
+  'okaxis', 'okicici', 'oksbi', 'okhdfcbank', 'paytm', 'apl', 'ybl', 'ibl', 'axl', 'barodampay', 'upi', 'pnb', 'hsbc', 'icici', 'axisbank', 'dlb', 'idbi', 'unionbank', 'kotak'
 ];
 
 export default function UPI() {
@@ -34,7 +39,10 @@ export default function UPI() {
   const [showPartnerModal, setShowPartnerModal] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<any>(null);
   const [buyName, setBuyName] = useState('');
-  const [buyPhone, setBuyPhone] = useState('');
+  const [buyUpiId, setBuyUpiId] = useState('');
+  const [buyMobile, setBuyMobile] = useState('');
+  const [showUpiSuggestions, setShowUpiSuggestions] = useState(false);
+  const [filteredHandles, setFilteredHandles] = useState<string[]>([]);
   const [isLinkingBuy, setIsLinkingBuy] = useState(false);
 
   // Sell Link Form State
@@ -75,6 +83,25 @@ export default function UPI() {
 
     return () => unsubscribe();
   }, [auth.currentUser]);
+
+  const handleUpiIdChange = (value: string) => {
+    setBuyUpiId(value);
+    if (value.includes('@')) {
+      const parts = value.split('@');
+      const handlePart = parts[1].toLowerCase();
+      const filtered = UPI_HANDLES.filter(h => h.startsWith(handlePart));
+      setFilteredHandles(filtered);
+      setShowUpiSuggestions(filtered.length > 0);
+    } else {
+      setShowUpiSuggestions(false);
+    }
+  };
+
+  const selectHandle = (handle: string) => {
+    const parts = buyUpiId.split('@');
+    setBuyUpiId(`${parts[0]}@${handle}`);
+    setShowUpiSuggestions(false);
+  };
 
   const handleSellSubmit = async () => {
     if (!sellAmount || isNaN(Number(sellAmount)) || Number(sellAmount) <= 0) {
@@ -121,17 +148,57 @@ export default function UPI() {
   };
 
   const handleLinkBuy = async () => {
-    if (!selectedPartner || !buyName || !buyPhone || !auth.currentUser) return;
+    if (!selectedPartner || !buyName || !buyUpiId || !buyMobile || !auth.currentUser) return;
+    
+    // Validation
+    if (!/^[a-zA-Z\s]+$/.test(buyName)) {
+      toast.error('Name can only contain alphabets');
+      return;
+    }
+    if (!buyUpiId.includes('@')) {
+      toast.error('Invalid UPI ID format (username@bank)');
+      return;
+    }
+    if (!/^\d{10}$/.test(buyMobile)) {
+      toast.error('Mobile number must be 10 digits');
+      return;
+    }
+
     setIsLinkingBuy(true);
     
     try {
+      // Check if user already has 3 Buy accounts
+      if (linkType === 'Buy' && buyAccounts.length >= 3) {
+        toast.error('You can link up to 3 Buy UPI IDs only');
+        setIsLinkingBuy(false);
+        return;
+      }
+
+      // Check uniqueness constraints for the current user
+      const qMobile = query(collection(db, 'upi_accounts'), where('userId', '==', auth.currentUser.uid), where('phone', '==', buyMobile));
+      const mobileSnap = await getDocs(qMobile);
+      if (!mobileSnap.empty) {
+        toast.error('You have already registered this mobile number');
+        setIsLinkingBuy(false);
+        return;
+      }
+
+      const qUpi = query(collection(db, 'upi_accounts'), where('userId', '==', auth.currentUser.uid), where('upiId', '==', buyUpiId));
+      const upiSnap = await getDocs(qUpi);
+      if (!upiSnap.empty) {
+        toast.error('You have already registered this UPI ID');
+        setIsLinkingBuy(false);
+        return;
+      }
+
       await addDoc(collection(db, 'upi_accounts'), {
         userId: auth.currentUser.uid,
         type: 'Buy',
         partnerId: selectedPartner.id,
         partnerName: selectedPartner.name,
         name: buyName,
-        phone: buyPhone,
+        upiId: buyUpiId,
+        phone: buyMobile,
         status: 'Active',
         createdAt: new Date().toISOString()
       });
@@ -146,7 +213,8 @@ export default function UPI() {
       // Reset form
       setSelectedPartner(null);
       setBuyName('');
-      setBuyPhone('');
+      setBuyUpiId('');
+      setBuyMobile('');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'upi_accounts');
     } finally {
@@ -273,18 +341,50 @@ export default function UPI() {
                 type="text" 
                 placeholder="Enter your name" 
                 value={buyName}
-                onChange={(e) => setBuyName(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^a-zA-Z\s]/g, '');
+                  setBuyName(val);
+                }}
                 className="flex-1 outline-none text-slate-900 font-medium placeholder:text-slate-300 placeholder:font-normal bg-transparent"
               />
             </div>
 
+            <div className="relative border-b border-slate-100">
+              <div className="flex items-center p-4">
+                <span className="text-slate-600 font-medium w-24">UPI ID</span>
+                <input 
+                  type="text" 
+                  placeholder="username@bank" 
+                  value={buyUpiId}
+                  onChange={(e) => handleUpiIdChange(e.target.value)}
+                  className="flex-1 outline-none text-slate-900 font-medium placeholder:text-slate-300 placeholder:font-normal bg-transparent"
+                />
+              </div>
+              {showUpiSuggestions && (
+                <div className="absolute left-24 right-4 top-full bg-white border border-slate-200 rounded-xl shadow-xl z-20 max-h-40 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
+                  {filteredHandles.map(handle => (
+                    <button 
+                      key={handle}
+                      onClick={() => selectHandle(handle)}
+                      className="w-full text-left px-4 py-2.5 hover:bg-slate-50 text-sm font-bold text-slate-700 border-b border-slate-50 last:border-0"
+                    >
+                      @{handle}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center p-4">
-              <span className="text-slate-600 font-medium w-24">UPI ID</span>
+              <span className="text-slate-600 font-medium w-24">Mobile</span>
               <input 
-                type="text" 
-                placeholder="Enter UPI ID" 
-                value={buyPhone}
-                onChange={(e) => setBuyPhone(e.target.value)}
+                type="tel" 
+                placeholder="10-digit mobile number" 
+                value={buyMobile}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setBuyMobile(val);
+                }}
                 className="flex-1 outline-none text-slate-900 font-medium placeholder:text-slate-300 placeholder:font-normal bg-transparent"
               />
             </div>
@@ -292,7 +392,7 @@ export default function UPI() {
             <div className="p-4 mt-4">
               <button 
                 onClick={handleLinkBuy}
-                disabled={!selectedPartner || !buyName || !buyPhone || isLinkingBuy}
+                disabled={!selectedPartner || !buyName || !buyUpiId || !buyMobile || isLinkingBuy}
                 className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white py-3.5 rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
               >
                 {isLinkingBuy ? (
@@ -618,14 +718,24 @@ export default function UPI() {
                 
                 <div className="flex items-center justify-between mt-4">
                   <div className="flex items-center gap-2">
-                    <div className="w-10 h-6 bg-indigo-500 rounded-full relative cursor-pointer">
-                      <div className="w-5 h-5 bg-white rounded-full absolute right-0.5 top-0.5 shadow-sm"></div>
-                    </div>
+                    <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
                     <span className="text-indigo-600 text-sm font-bold">{acc.status}</span>
                   </div>
                   <div className="flex gap-2">
-                    <button className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-lg text-sm text-slate-700 font-bold transition-colors">
-                      <Settings className="w-4 h-4" /> Edit
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const { deleteDoc } = await import('firebase/firestore');
+                          await deleteDoc(doc(db, 'upi_accounts', acc.id));
+                          toast.success('UPI ID deleted successfully');
+                        } catch (e) {
+                          console.error('Delete error:', e);
+                          toast.error('Failed to delete UPI ID');
+                        }
+                      }}
+                      className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-lg text-sm text-rose-700 font-bold transition-colors"
+                    >
+                      Delete
                     </button>
                   </div>
                 </div>

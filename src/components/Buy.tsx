@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, ChevronDown, AlertCircle, Coins, IndianRupee, Filter, ArrowUpDown, Wallet, Copy, X, History as HistoryIcon, CheckCircle2, ExternalLink, Info } from 'lucide-react';
+import { Search, ChevronDown, AlertCircle, Coins, IndianRupee, Filter, ArrowUpDown, Wallet, Copy, X, History as HistoryIcon, CheckCircle2, ExternalLink, Info, HelpCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
 import { doc, updateDoc, increment, collection, query, where, getDocs, addDoc, orderBy, limit, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -30,9 +30,26 @@ export default function Buy() {
   const [orders, setOrders] = useState<BuyOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<BuyOrder | null>(null);
+  const [transactionStep, setTransactionStep] = useState<'info' | 'select_upi' | 'proceed' | 'confirm' | 'utr'>('info');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [utr, setUtr] = useState('');
+  const [selectedUserUpiId, setSelectedUserUpiId] = useState<string>('');
+  const [utrNumber, setUtrNumber] = useState('');
+  const [userAmount, setUserAmount] = useState('');
+  const [linkedBuyAccounts, setLinkedBuyAccounts] = useState<any[]>([]);
   const { eCoinBalance } = useAppStore();
+
+  useEffect(() => {
+    if (!auth.currentUser) return;
+    const q = query(collection(db, 'upi_accounts'), where('userId', '==', auth.currentUser.uid), where('type', '==', 'Buy'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const accs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setLinkedBuyAccounts(accs);
+      if (accs.length > 0 && !selectedUserUpiId) {
+        setSelectedUserUpiId((accs[0] as any).upiId);
+      }
+    });
+    return () => unsubscribe();
+  }, [auth.currentUser]);
 
   useEffect(() => {
     setLoading(true);
@@ -61,15 +78,12 @@ export default function Buy() {
   }, []);
 
   const filteredOrders = orders.filter(order => {
-    const matchesSearch = order.price.toString().includes(searchTerm) || 
-                         order.orderNo.toLowerCase().includes(searchTerm.toLowerCase());
-    
     let matchesPrice = true;
     if (priceFilter === '500-1000') matchesPrice = order.price >= 500 && order.price <= 1000;
     else if (priceFilter === '1000-5000') matchesPrice = order.price > 1000 && order.price <= 5000;
     else if (priceFilter === '5000+') matchesPrice = order.price > 5000;
 
-    return matchesSearch && matchesPrice;
+    return matchesPrice;
   });
 
   const displayOrders = [...filteredOrders].sort((a, b) => 
@@ -83,10 +97,18 @@ export default function Buy() {
   const handleConfirmPayment = async () => {
     if (!selectedOrder || !auth.currentUser) return;
     
-    // Validate UTR (Standard UPI UTR is 12 digits)
-    const utrRegex = /^\d{12}$/;
-    if (!utrRegex.test(utr)) {
-      toast.error('Invalid UTR format. Please enter the 12-digit UTR number.');
+    if (!selectedUserUpiId) {
+      toast.error('Please select your UPI ID');
+      return;
+    }
+
+    if (!utrNumber || utrNumber.length < 12) {
+      toast.error('Please enter a valid 12-digit UTR number');
+      return;
+    }
+
+    if (!userAmount || parseFloat(userAmount) <= 0) {
+      toast.error('Please enter a valid amount');
       return;
     }
 
@@ -97,10 +119,11 @@ export default function Buy() {
         userId: auth.currentUser.uid,
         orderId: selectedOrder.id,
         orderNo: selectedOrder.orderNo,
-        amount: selectedOrder.price,
+        amount: parseFloat(userAmount),
+        userUpiId: selectedUserUpiId,
+        utr: utrNumber,
         status: 'Pending',
         createdAt: new Date().toISOString(),
-        utr: utr
       });
 
       // 2. Mark order as Processing
@@ -118,12 +141,47 @@ export default function Buy() {
         icon: <CheckCircle2 className="w-5 h-5 text-emerald-600" />
       });
       setSelectedOrder(null);
-      setUtr('');
+      setTransactionStep('info');
+      setSelectedUserUpiId('');
+      setUtrNumber('');
+      setUserAmount('');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'buy_requests');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleProceedToPay = () => {
+    if (!selectedOrder) return;
+    const upiUrl = `upi://pay?pa=${selectedOrder.upiId}&pn=${selectedOrder.payeeName}&am=${selectedOrder.price}&cu=INR`;
+    window.location.href = upiUrl;
+    setTransactionStep('confirm');
+    setUserAmount(selectedOrder.price.toString());
+  };
+
+  const handleGPayPay = () => {
+    if (!selectedOrder) return;
+    // Enhanced GPay deep link for better app targeting
+    const upiUrl = `upi://pay?pa=${selectedOrder.upiId}&pn=${encodeURIComponent(selectedOrder.payeeName)}&am=${selectedOrder.price}&cu=INR&mode=02&purpose=00`;
+    
+    // On Android, we can try to force GPay if possible, but standard upi:// is safer for cross-platform
+    window.location.href = upiUrl;
+    
+    setTransactionStep('confirm');
+    setUserAmount(selectedOrder.price.toString());
+  };
+
+  const handleBuyClick = (order: BuyOrder) => {
+    if (linkedBuyAccounts.length === 0) {
+      toast.error('Please link a Buy UPI ID first');
+      // Redirect to UPI page
+      const upiTab = document.querySelector('[data-tab="upi"]') as HTMLElement;
+      if (upiTab) upiTab.click();
+      return;
+    }
+    setSelectedOrder(order);
+    setTransactionStep('info');
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -158,35 +216,20 @@ export default function Buy() {
       <div className="bg-amber-50 mx-4 mt-4 p-3 rounded-xl border border-amber-200 flex items-start gap-3 shadow-sm">
         <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-amber-800 font-bold leading-relaxed">
-          If you do not try to buy now, you will not be able to get the 4.5% reward! Please pay exactly the amount shown.
+          Please pay exact amount.
         </p>
       </div>
 
-      {/* Balance Card */}
-      <div className="bg-white mx-4 mt-4 rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Wallet className="w-5 h-5 text-indigo-600" />
-          <span className="text-slate-600 font-bold">Current Balance</span>
-        </div>
-        <div className="flex items-center gap-1.5 font-bold text-slate-900 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
-          <Coins className="w-4 h-4 text-indigo-600" />
-          {eCoinBalance.toFixed(2)}
-        </div>
+      {/* UPI Binding Notice */}
+      <div className="bg-indigo-50 mx-4 mt-4 p-3 rounded-xl border border-indigo-100 flex items-start gap-3 shadow-sm">
+        <Info className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
+        <p className="text-xs text-indigo-800 font-bold leading-relaxed">
+          You need to bind a buy UPI.
+        </p>
       </div>
 
-      {/* Search and Filters */}
+      {/* Filters */}
       <div className="px-4 mt-6 space-y-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input 
-            type="text"
-            placeholder="Search by amount or order no..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm"
-          />
-        </div>
-
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
           {(['all', '500-1000', '1000-5000', '5000+'] as const).map((filter) => (
             <button
@@ -269,7 +312,7 @@ export default function Buy() {
                   </div>
 
                   <button
-                    onClick={() => setSelectedOrder(order)}
+                    onClick={() => handleBuyClick(order)}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-100 transition-all active:scale-95 flex items-center gap-2"
                   >
                     Buy
@@ -283,120 +326,219 @@ export default function Buy() {
 
       {/* Combined Payment & UTR Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="bg-indigo-600 p-8 text-white relative">
-              <button 
-                onClick={() => { setSelectedOrder(null); setUtr(''); }}
-                className="absolute top-6 right-6 p-2 hover:bg-white/10 rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-white/20 rounded-xl backdrop-blur-md">
-                  <IndianRupee className="w-6 h-6" />
-                </div>
-                <h3 className="text-2xl font-black">Payment</h3>
-              </div>
-              <p className="text-indigo-100 text-sm font-medium">
-                Pay exactly <span className="font-black text-white text-xl">₹{selectedOrder.price}</span>
-              </p>
-            </div>
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-50 animate-in slide-in-from-right duration-300">
+          {/* Header */}
+          <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+            <button 
+              onClick={() => { setSelectedOrder(null); setTransactionStep('info'); }}
+              className="p-1 hover:bg-slate-100 rounded-full mr-2"
+            >
+              <X className="w-6 h-6 text-slate-500" />
+            </button>
+            <h2 className="font-bold text-slate-900 text-lg">
+              {transactionStep === 'info' ? 'UPI and Pay' : 'Payment Details'}
+            </h2>
+          </div>
 
-            <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto scrollbar-hide">
-              <div className="space-y-4">
-                {selectedOrder.type === 'UPI' ? (
-                  <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 flex justify-between items-center group active:bg-slate-100 transition-colors" onClick={() => copyToClipboard(selectedOrder.upiId!, 'UPI ID')}>
+          <div className="flex-1 overflow-y-auto p-6">
+            {transactionStep === 'info' ? (
+              <div className="space-y-6">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 text-center">
+                  <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <IndianRupee className="w-8 h-8 text-indigo-600" />
+                  </div>
+                  <span className="text-slate-400 text-[10px] font-bold uppercase tracking-widest block mb-1">Pay Exactly</span>
+                  <h3 className="text-3xl font-black text-slate-900">₹{selectedOrder.price}</h3>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="p-5 bg-white rounded-3xl border border-slate-100 flex justify-between items-center group active:bg-slate-50 transition-colors" onClick={() => copyToClipboard(selectedOrder.upiId!, 'UPI ID')}>
                     <div className="flex-1 min-w-0">
                       <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-widest mb-1">UPI ID</span>
                       <span className="font-black text-slate-900 text-lg truncate block">{selectedOrder.upiId}</span>
                     </div>
-                    <div className="p-3 bg-white rounded-2xl shadow-sm border border-slate-100 text-indigo-600 group-hover:scale-110 transition-transform">
+                    <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-indigo-600 group-hover:scale-110 transition-transform">
                       <Copy className="w-5 h-5" />
                     </div>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 flex justify-between items-center">
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-widest mb-1">Bank Name</span>
-                        <span className="font-black text-slate-900 text-lg truncate block">{selectedOrder.bankName}</span>
-                      </div>
-                    </div>
-                    <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 flex justify-between items-center group active:bg-slate-100 transition-colors" onClick={() => copyToClipboard(selectedOrder.bankAccNo!, 'Account Number')}>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-widest mb-1">Account Number</span>
-                        <span className="font-black text-slate-900 text-lg truncate block">{selectedOrder.bankAccNo}</span>
-                      </div>
-                      <div className="p-3 bg-white rounded-2xl shadow-sm border border-slate-100 text-indigo-600 group-hover:scale-110 transition-transform">
-                        <Copy className="w-5 h-5" />
-                      </div>
-                    </div>
-                    <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 flex justify-between items-center group active:bg-slate-100 transition-colors" onClick={() => copyToClipboard(selectedOrder.bankIfsc!, 'IFSC Code')}>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-widest mb-1">IFSC Code</span>
-                        <span className="font-black text-slate-900 text-lg truncate block">{selectedOrder.bankIfsc}</span>
-                      </div>
-                      <div className="p-3 bg-white rounded-2xl shadow-sm border border-slate-100 text-indigo-600 group-hover:scale-110 transition-transform">
-                        <Copy className="w-5 h-5" />
-                      </div>
-                    </div>
-                  </div>
-                )}
 
-                <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 flex justify-between items-center group active:bg-slate-100 transition-colors" onClick={() => copyToClipboard(selectedOrder.payeeName!, 'Payee Name')}>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-widest mb-1">Payee Name</span>
-                    <span className="font-black text-slate-900 text-lg truncate block">{selectedOrder.payeeName}</span>
-                  </div>
-                  <div className="p-3 bg-white rounded-2xl shadow-sm border border-slate-100 text-indigo-600 group-hover:scale-110 transition-transform">
-                    <Copy className="w-5 h-5" />
+                  <div className="p-5 bg-white rounded-3xl border border-slate-100 flex justify-between items-center group active:bg-slate-50 transition-colors" onClick={() => copyToClipboard(selectedOrder.payeeName!, 'Payee Name')}>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-widest mb-1">Payee Name</span>
+                      <span className="font-black text-slate-900 text-lg truncate block">{selectedOrder.payeeName}</span>
+                    </div>
+                    <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-indigo-600 group-hover:scale-110 transition-transform">
+                      <Copy className="w-5 h-5" />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="h-px bg-slate-100 w-full"></div>
+                <div className="bg-white p-5 rounded-3xl border border-slate-100">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-3 block">Select Your Paying UPI ID</label>
+                  <div className="space-y-2">
+                    {linkedBuyAccounts.map((acc) => (
+                      <button
+                        key={acc.id}
+                        onClick={() => setSelectedUserUpiId(acc.upiId)}
+                        className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
+                          selectedUserUpiId === acc.upiId 
+                            ? 'border-indigo-600 bg-indigo-50 text-indigo-700' 
+                            : 'border-slate-100 hover:border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center font-bold text-xs border border-slate-100">
+                            {acc.partnerName?.slice(0, 1)}
+                          </div>
+                          <div className="text-left">
+                            <span className="font-bold text-sm block">{acc.upiId}</span>
+                            <span className="text-[10px] opacity-70">{acc.name}</span>
+                          </div>
+                        </div>
+                        {selectedUserUpiId === acc.upiId && <CheckCircle2 className="w-5 h-5" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-              <div className="space-y-4">
-                <div className="flex flex-col">
-                  <label className="text-xs font-bold text-slate-500 mb-2 ml-1 uppercase tracking-wider">Enter 12-Digit UTR Number</label>
-                  <input 
-                    type="text" 
-                    value={utr}
-                    onChange={(e) => setUtr(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                    placeholder="Example: 123456789012"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-lg font-black text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-300 placeholder:font-bold"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-2 ml-1 font-medium italic">
-                    * Find the UTR/Ref number in your payment confirmation screen.
+                <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                  <p className="text-[10px] font-bold text-amber-800 leading-relaxed">
+                    Please pay the exact amount using your selected UPI ID. Otherwise, your money may not be safe.
                   </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 pt-4">
+                  <button 
+                    disabled={!selectedUserUpiId}
+                    onClick={handleProceedToPay}
+                    className="w-full py-4 bg-indigo-600 disabled:bg-indigo-300 text-white rounded-2xl font-bold shadow-lg shadow-indigo-100 active:scale-95 transition-all flex items-center justify-center gap-2"
+                  >
+                    <ExternalLink className="w-5 h-5" />
+                    Proceed to Pay
+                  </button>
+                  
+                  <button 
+                    disabled={!selectedUserUpiId}
+                    onClick={handleGPayPay}
+                    className="w-full py-4 bg-emerald-600 disabled:bg-emerald-300 text-white rounded-2xl font-bold shadow-lg shadow-emerald-100 active:scale-95 transition-all flex items-center justify-center gap-2"
+                  >
+                    <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center">
+                      <span className="text-[10px] font-black text-emerald-600">G</span>
+                    </div>
+                    Pay with GPay
+                  </button>
+                </div>
+              </div>
+            ) : transactionStep === 'confirm' ? (
+              <div className="space-y-6">
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center">
+                  <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <HelpCircle className="w-10 h-10 text-amber-600" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900 mb-2">Payment Done?</h3>
+                  <p className="text-slate-500 text-sm font-medium">
+                    If you have completed the payment in your UPI app, please confirm to submit UTR.
+                  </p>
+                </div>
+
+                <div className="bg-white p-5 rounded-3xl border border-slate-100">
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Paying From</span>
+                    <span className="text-indigo-600 font-bold text-sm">{selectedUserUpiId}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Amount</span>
+                    <span className="text-slate-900 font-black text-lg">₹{selectedOrder.price}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 pt-4">
+                  <button 
+                    onClick={() => setTransactionStep('utr')}
+                    className="py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg shadow-xl shadow-indigo-200 active:scale-95 transition-all"
+                  >
+                    Payment Confirmation
+                  </button>
+                  <button 
+                    onClick={() => setTransactionStep('info')}
+                    className="py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-bold active:scale-95 transition-all"
+                  >
+                    Back
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                  <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-50">
+                    <div>
+                      <span className="text-slate-400 text-[10px] font-bold uppercase tracking-widest block mb-1">Paying From</span>
+                      <span className="text-slate-900 font-bold text-sm">{selectedUserUpiId}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-slate-400 text-[10px] font-bold uppercase tracking-widest block mb-1">Amount</span>
+                      <span className="text-indigo-600 font-black text-lg">₹{selectedOrder.price}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Enter UTR Number</label>
+                      <input 
+                        type="text" 
+                        value={utrNumber}
+                        onChange={(e) => setUtrNumber(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                        placeholder="Please enter UTR here"
+                        className="w-full bg-slate-50/80 border border-slate-200 rounded-2xl px-5 py-4 text-lg font-black tracking-[0.2em] text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-center"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Confirm Amount Paid</label>
+                      <input 
+                        type="number" 
+                        value={userAmount}
+                        readOnly
+                        placeholder="₹0.00"
+                        className="w-full bg-slate-100 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold text-slate-500 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 flex gap-3">
-                  <AlertCircle className="w-5 h-5 text-indigo-600 shrink-0" />
+                  <Info className="w-5 h-5 text-indigo-600 shrink-0" />
                   <p className="text-[10px] font-bold text-indigo-800 leading-relaxed">
-                    Verification takes 5-15 minutes. Do not submit fake UTR numbers or your account may be suspended.
+                    Please double check your UTR number. Incorrect UTR may lead to payment failure or account suspension.
                   </p>
                 </div>
 
-                <button 
-                  disabled={isSubmitting || utr.length !== 12}
-                  onClick={handleConfirmPayment}
-                  className={`w-full py-5 rounded-[1.5rem] font-black text-base shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 ${
-                    isSubmitting || utr.length !== 12
-                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                      : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
-                  }`}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Submitting...
-                    </>
-                  ) : 'Submit Payment Request'}
-                </button>
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    onClick={() => setTransactionStep('confirm')}
+                    className="flex-1 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-bold shadow-sm active:scale-95 transition-all"
+                  >
+                    Back
+                  </button>
+                  <button 
+                    disabled={isSubmitting || utrNumber.length < 12 || !userAmount}
+                    onClick={handleConfirmPayment}
+                    className={`flex-[2] py-4 rounded-2xl font-black text-base shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                      isSubmitting || utrNumber.length < 12 || !userAmount
+                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                        : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
+                    }`}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        Submitting...
+                      </>
+                    ) : 'Submit UTR'}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}

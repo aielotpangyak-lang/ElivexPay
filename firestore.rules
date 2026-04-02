@@ -22,7 +22,8 @@ service cloud.firestore {
           request.auth.uid == "wyBJq70cuaMkdwjTWTzpfDfrFNj1" ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-          (request.auth.token.email == "aielotpangyak@gmail.com" && request.auth.token.email_verified == true)
+          (request.auth.token.email == "aielotpangyak@gmail.com" && request.auth.token.email_verified == true) ||
+          (request.auth.token.email == "admin@elivex.com")
         );
     }
     
@@ -51,9 +52,9 @@ service cloud.firestore {
           'uid', 'shortId', 'role', 'mobile', 'eCoinBalance', 'createdAt', 
           'referrerId', 'totalEarnings', 'todayEarnings', 'newbieBonusCompleted', 
           'newbieRewardClaimed', 'dailyBonusClaimedAt', 'claimedNewbieRewards',
-          'todayProfit', 'transactionAmount', 'hasBoughtAnyAmount',
-          'dailyTeamCommission', 'lastCommissionDate', 'dailyBonusClaimedDate',
-          'telegramJoined', 'instagramFollowed'
+          'todayProfit', 'lastProfitDate', 'transactionAmount', 'hasBoughtAnyAmount',
+          'todayTeamCommission', 'lastCommissionDate', 'dailyBonusClaimedDate',
+          'telegramJoined', 'instagramFollowed', 'totalBuyAmount'
         ];
         return hasOnlyAllowedFields(allowedFields) &&
                (!('uid' in data) || (data.uid is string && data.uid.size() < 128)) &&
@@ -70,24 +71,37 @@ service cloud.firestore {
                (!('dailyBonusClaimedAt' in data) || (data.dailyBonusClaimedAt is string && data.dailyBonusClaimedAt.size() < 64)) &&
                (!('claimedNewbieRewards' in data) || data.claimedNewbieRewards is list) &&
                (!('todayProfit' in data) || data.todayProfit is number) &&
+               (!('lastProfitDate' in data) || (data.lastProfitDate is string && data.lastProfitDate.size() < 64)) &&
                (!('transactionAmount' in data) || data.transactionAmount is number) &&
                (!('hasBoughtAnyAmount' in data) || data.hasBoughtAnyAmount is bool) &&
-               (!('dailyTeamCommission' in data) || data.dailyTeamCommission is number) &&
+               (!('todayTeamCommission' in data) || data.todayTeamCommission is number) &&
                (!('lastCommissionDate' in data) || (data.lastCommissionDate is string && data.lastCommissionDate.size() < 64)) &&
                (!('dailyBonusClaimedDate' in data) || (data.dailyBonusClaimedDate is string && data.dailyBonusClaimedDate.size() < 64)) &&
                (!('telegramJoined' in data) || data.telegramJoined is bool) &&
-               (!('instagramFollowed' in data) || data.instagramFollowed is bool);
+               (!('instagramFollowed' in data) || data.instagramFollowed is bool) &&
+               (!('totalBuyAmount' in data) || data.totalBuyAmount is number);
       }
       
       allow get: if true; // Allow looking up referrers by UID
       allow list: if isAuthenticated() && (isAdmin() || (resource != null && resource.data.referrerId == request.auth.uid));
       allow create: if isAuthenticated() && (isOwner(userId) || isAdmin()) && (isAdmin() || (isValidUser() && request.resource.data.role == 'user'));
       allow update: if isAuthenticated() && (isAdmin() || (isValidUser() && (
-        isOwner(userId) || 
+        isOwner(userId) && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shortId', 'todayProfit', 'lastProfitDate', 'todayTeamCommission', 'lastCommissionDate', 'telegramJoined', 'instagramFollowed', 'newbieRewardClaimed', 'dailyBonusClaimedAt', 'claimedNewbieRewards', 'dailyBonusClaimedDate', 'eCoinBalance', 'totalEarnings', 'todayEarnings', 'transactionAmount', 'hasBoughtAnyAmount'])
+        ) || 
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shortId']) && (!('shortId' in resource.data) || resource.data.shortId == null))
       )));
     }
 
+    match /otps/{phone} {
+      // Only Cloud Functions (Admin SDK) can read/write OTPs
+      allow read, write: if false; 
+    }
+
+    match /otp_rate_limits/{ip} {
+      // Only Cloud Functions (Admin SDK) can read/write rate limits
+      allow read, write: if false;
+    }
     match /short_ids/{shortId} {
       allow read: if true; // Publicly readable for invitation code lookup
       allow write: if isAuthenticated() && (
@@ -110,7 +124,7 @@ service cloud.firestore {
       }
 
       allow read: if isAuthenticated() && (request.auth.uid == resource.data.receiverId || isAdmin());
-      allow create: if false; // Only created by backend
+      allow create: if isAdmin() && isValidCommission();
       allow update: if false; // Never updated
       allow delete: if false; // Never deleted
     }
@@ -182,19 +196,8 @@ service cloud.firestore {
     }
 
     match /buy_requests/{requestId} {
-      function isValidBuyRequest() {
-        let data = request.resource.data;
-        let allowedFields = ['userId', 'orderId', 'amount', 'status', 'createdAt', 'orderNo', 'utr', 'updatedAt'];
-        return hasOnlyAllowedFields(allowedFields) &&
-               data.userId is string &&
-               data.orderId is string &&
-               data.amount is number &&
-               data.status in ['Pending', 'Approved', 'Rejected'] &&
-               data.createdAt is string;
-      }
-
       allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
-      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId && isValidBuyRequest();
+      allow create: if isAuthenticated() && (request.auth.uid == request.resource.data.userId || isAdmin());
       allow update: if isAdmin();
       allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
     }

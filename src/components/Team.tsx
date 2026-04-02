@@ -4,26 +4,48 @@ import toast from 'react-hot-toast';
 import { doc, getDoc, collection, query, where, getDocs, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { handleFirestoreError, OperationType } from '../lib/firestoreErrorHandler';
+import { useAppStore } from '../store';
 
-export default function Team() {
-  const [shortId, setShortId] = useState<string>('Loading...');
+const Team = () => {
+  const { 
+    shortId: globalShortId, 
+    eCoinBalance: globalECoinBalance,
+    todayTeamCommission: globalTodayTeamCommission,
+    dailyBonusClaimedDate: globalDailyBonusClaimedDate,
+    setECoinBalance,
+    setTodayTeamCommission,
+    setDailyBonusClaimedDate
+  } = useAppStore();
+
+  const [shortId, setShortId] = useState<string>(globalShortId || 'Loading...');
   const [copiedCode, setCopiedCode] = useState(false);
   
   const [teamCount, setTeamCount] = useState(0);
   const [totalCommission, setTotalCommission] = useState(0);
-  const [todayCommission, setTodayCommission] = useState(0);
   const [yesterdayCommission, setYesterdayCommission] = useState(0);
-  const [eCoinBalance, setECoinBalance] = useState(0);
-  const [dailyBonusClaimedDate, setDailyBonusClaimedDate] = useState<string | null>(null);
   const [claimedNewbieRewards, setClaimedNewbieRewards] = useState<string[]>([]);
   const [level1Members, setLevel1Members] = useState<any[]>([]);
   const [level2Members, setLevel2Members] = useState<any[]>([]);
   const [level3Members, setLevel3Members] = useState<any[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
-  const [view, setView] = useState<'main' | 'rewards'>('main');
+  const [view, setView] = useState<'main' | 'rewards' | 'details'>('main');
   const [activeTab, setActiveTab] = useState<'L1' | 'L2' | 'L3'>('L1');
   const isInitialLoad = useRef(true);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialView = params.get('teamView');
+    if (initialView === 'details') {
+      setView('details');
+      // Clear the parameter
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (globalShortId) setShortId(globalShortId);
+  }, [globalShortId]);
 
   useEffect(() => {
     let unsubTeam: (() => void) | undefined;
@@ -68,9 +90,6 @@ export default function Team() {
             // Fetch Level 2
             if (l1.length > 0) {
               const l1Ids = l1.map(m => m.id);
-              // Firestore 'in' limit is 30. For simplicity in prototype, we'll chunk or just take first 30 if needed, 
-              // but here we'll try to be more robust if possible.
-              // For now, let's just do one query for the first 30 to keep it simple and avoid complex chunking logic in this turn.
               const l2Query = query(usersRef, where('referrerId', 'in', l1Ids.slice(0, 30)));
               const l2Snapshot = await getDocs(l2Query);
               const l2 = l2Snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -91,21 +110,7 @@ export default function Team() {
               setLevel3Members([]);
             }
 
-            setTeamCount(l1.length + level2Members.length + level3Members.length);
             setLoadingMembers(false);
-            
-            // Show notification for new members (except on initial load)
-            if (!isInitialLoad.current) {
-              snapshot.docChanges().forEach((change) => {
-                if (change.type === 'added') {
-                  const newUser = change.doc.data();
-                  toast.success(`New team member joined! UID: ${newUser.shortId || 'New User'}`, {
-                    icon: <Users className="w-5 h-5 text-indigo-600" />,
-                    duration: 5000,
-                  });
-                }
-              });
-            }
             isInitialLoad.current = false;
           }, (error) => {
             // Only report error if user is still logged in
@@ -120,7 +125,6 @@ export default function Team() {
           const commissionsSnapshot = await getDocs(commissionsQuery);
           
           let total = 0;
-          let today = 0;
           let yesterday = 0;
 
           const now = new Date();
@@ -134,15 +138,12 @@ export default function Team() {
 
             total += amount;
 
-            if (createdAt >= todayStart) {
-              today += amount;
-            } else if (createdAt >= yesterdayStart && createdAt < todayStart) {
+            if (createdAt >= yesterdayStart && createdAt < todayStart) {
               yesterday += amount;
             }
           });
 
           setTotalCommission(total);
-          setTodayCommission(today);
           setYesterdayCommission(yesterday);
 
         } catch (error) {
@@ -175,12 +176,12 @@ export default function Team() {
   };
 
   const handleClaimDailyBonus = async () => {
-    if (!auth.currentUser || todayCommission < 500) return;
+    if (!auth.currentUser || globalTodayTeamCommission < 500) return;
     
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
     
-    if (dailyBonusClaimedDate === todayStr) {
+    if (globalDailyBonusClaimedDate === todayStr) {
       toast.error('Daily bonus already claimed for today!');
       return;
     }
@@ -189,13 +190,14 @@ export default function Team() {
     const userRef = doc(db, 'users', userId);
     
     try {
+      const { increment } = await import('firebase/firestore');
       await updateDoc(userRef, {
-        eCoinBalance: eCoinBalance + 300,
+        eCoinBalance: increment(300),
         dailyBonusClaimedDate: todayStr
       });
       setDailyBonusClaimedDate(todayStr);
-      setECoinBalance(prev => prev + 300);
-      toast.success('₹300 Daily Bonus claimed successfully!');
+      setECoinBalance(globalECoinBalance + 300);
+      toast.success('300 E-Coin Daily Bonus claimed successfully!');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     }
@@ -209,12 +211,13 @@ export default function Team() {
     
     try {
       const newClaimed = [...claimedNewbieRewards, memberId];
+      const { increment } = await import('firebase/firestore');
       await updateDoc(userRef, {
-        eCoinBalance: eCoinBalance + 500,
+        eCoinBalance: increment(500),
         claimedNewbieRewards: newClaimed
       });
       setClaimedNewbieRewards(newClaimed);
-      setECoinBalance(prev => prev + 500);
+      setECoinBalance(globalECoinBalance + 500);
       toast.success('500 E-Coin Referral Reward claimed!');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
@@ -222,7 +225,7 @@ export default function Team() {
   };
 
   const todayStr = new Date().toISOString().split('T')[0];
-  const isDailyBonusClaimed = dailyBonusClaimedDate === todayStr;
+  const isDailyBonusClaimed = globalDailyBonusClaimedDate === todayStr;
 
   if (view === 'rewards') {
     return (
@@ -241,7 +244,7 @@ export default function Team() {
               <Award className="w-5 h-5 text-rose-500" />
               <h3 className="font-bold text-rose-800">Referral Bonus</h3>
             </div>
-            <p className="text-xs text-rose-600 font-medium">Claim ₹500 for every direct referral who completes their first purchase.</p>
+            <p className="text-xs text-rose-600 font-medium">Claim 500 E-Coin for every direct referral who completes ₹5000 in transactions.</p>
           </div>
 
           <div className="space-y-3">
@@ -260,10 +263,113 @@ export default function Team() {
               ) : (
                 level1Members.map((member) => {
                   const isClaimed = claimedNewbieRewards.includes(member.id);
-                  const canClaim = member.newbieBonusCompleted && !isClaimed;
+                  const canClaim = (member.totalBuyAmount || 0) >= 5000 && !isClaimed;
 
+                    return (
+                      <div key={member.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3 transition-all active:scale-[0.98]">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                              <User className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-slate-900">UID: {member.shortId || '...'}</span>
+                                {(member.totalBuyAmount || 0) >= 5000 && (
+                                  <span className="bg-emerald-100 text-emerald-600 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase">Task Done</span>
+                                )}
+                              </div>
+                              <span className="text-xs text-slate-500 font-medium">{member.mobile || 'No mobile'}</span>
+                            </div>
+                          </div>
+
+                          <button 
+                            disabled={!canClaim}
+                            onClick={() => handleClaimReferralReward(member.id)}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 ${
+                              isClaimed 
+                                ? 'bg-emerald-100 text-emerald-600 cursor-default' 
+                                : canClaim 
+                                  ? 'bg-rose-500 text-white hover:bg-rose-600' 
+                                  : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                            }`}
+                          >
+                            {isClaimed ? 'Claimed' : canClaim ? 'Claim 500 E-Coin' : 'Reward'}
+                          </button>
+                        </div>
+
+                        {!(member.totalBuyAmount >= 5000) && (
+                          <div className="pt-2 border-t border-slate-50">
+                            <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1.5">
+                              <span>Progress</span>
+                              <span>₹{(member.totalBuyAmount || 0).toFixed(0)} / ₹5000</span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                              <div 
+                                className="h-full bg-indigo-500 transition-all duration-500"
+                                style={{ width: `${Math.min(((member.totalBuyAmount || 0) / 5000) * 100, 100)}%` }}
+                              ></div>
+                            </div>
+                            <p className="text-[9px] text-slate-400 font-medium mt-1.5 text-right italic">
+                              ₹{(5000 - (member.totalBuyAmount || 0)).toFixed(0)} more needed to be claimable
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                })
+              )
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'details') {
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        {/* Header */}
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
+          </button>
+          <h2 className="font-bold text-slate-900 text-lg">Team Details</h2>
+        </div>
+
+        <div className="flex border-b border-slate-100 bg-white sticky top-0 z-10">
+          {(['L1', 'L2', 'L3'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-4 text-sm font-bold transition-all border-b-2 ${
+                activeTab === tab 
+                  ? 'text-indigo-600 border-indigo-600 bg-indigo-50/50' 
+                  : 'text-slate-400 border-transparent hover:text-slate-600'
+              }`}
+            >
+              Level {tab.slice(1)} ({
+                tab === 'L1' ? level1Members.length : 
+                tab === 'L2' ? level2Members.length : 
+                level3Members.length
+              })
+            </button>
+          ))}
+        </div>
+
+        <div className="p-4 flex-1">
+          <div className="space-y-3">
+            {loadingMembers ? (
+              <div className="flex justify-center py-12">
+                <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            ) : (
+              (activeTab === 'L1' ? level1Members : activeTab === 'L2' ? level2Members : level3Members).length === 0 ? (
+                <div className="text-center py-12 text-slate-400 italic">No members found in this level</div>
+              ) : (
+                (activeTab === 'L1' ? level1Members : activeTab === 'L2' ? level2Members : level3Members).map((member) => {
                   return (
-                    <div key={member.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between transition-all active:scale-[0.98]">
+                    <div key={member.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
                           <User className="w-5 h-5" />
@@ -271,27 +377,10 @@ export default function Team() {
                         <div>
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold text-slate-900">UID: {member.shortId || '...'}</span>
-                            {member.newbieBonusCompleted && (
-                              <span className="bg-emerald-100 text-emerald-600 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase">Task Done</span>
-                            )}
                           </div>
                           <span className="text-xs text-slate-500 font-medium">{member.mobile || 'No mobile'}</span>
                         </div>
                       </div>
-
-                      <button 
-                        disabled={!canClaim}
-                        onClick={() => handleClaimReferralReward(member.id)}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 ${
-                          isClaimed 
-                            ? 'bg-emerald-100 text-emerald-600 cursor-default' 
-                            : canClaim 
-                              ? 'bg-rose-500 text-white hover:bg-rose-600' 
-                              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                        }`}
-                      >
-                        {isClaimed ? 'Claimed' : canClaim ? 'Claim 500' : 'Reward'}
-                      </button>
                     </div>
                   );
                 })
@@ -326,7 +415,7 @@ export default function Team() {
       {/* Stats List */}
       <div className="bg-white mt-4 border-y border-slate-100 shadow-sm divide-y divide-slate-50">
         <button 
-          onClick={() => { setShowTeamModal(true); setActiveTab('L1'); }}
+          onClick={() => { setView('details'); setActiveTab('L1'); }}
           className="w-full flex justify-between items-center p-4 hover:bg-slate-50 transition-colors"
         >
           <div className="flex items-center gap-3">
@@ -374,7 +463,7 @@ export default function Team() {
             </div>
             <span className="text-slate-700 font-medium">My Total Profit</span>
           </div>
-          <span className="text-indigo-600 font-bold">₹{eCoinBalance.toFixed(2)}</span>
+          <span className="text-indigo-600 font-bold">₹{globalECoinBalance.toFixed(2)}</span>
         </div>
 
         <div className="flex justify-between items-center p-4">
@@ -384,7 +473,7 @@ export default function Team() {
         
         <div className="flex justify-between items-center p-4">
           <span className="text-slate-700 font-medium pl-11">Today Team Commission</span>
-          <span className="text-emerald-600 font-bold">₹{todayCommission.toFixed(2)}</span>
+          <span className="text-emerald-600 font-bold">₹{globalTodayTeamCommission.toFixed(2)}</span>
         </div>
       </div>
 
@@ -395,50 +484,53 @@ export default function Team() {
             <span>Daily Commission Tasks</span>
             <span className="text-[10px] text-slate-400">Earn 0.15% extra on daily tasks</span>
           </div>
-          <span className="text-indigo-600">{Math.min(100, (todayCommission / 500) * 100).toFixed(0)}%</span>
+          <span className="text-indigo-600">{globalTodayTeamCommission < 500 ? '500 more needed' : '100%'}</span>
         </div>
         <div className="w-full bg-slate-100 rounded-full h-3 mb-2 relative overflow-hidden border border-slate-200">
-          <div className="bg-indigo-500 h-3 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (todayCommission / 500) * 100)}%` }}></div>
+          <div className="bg-indigo-500 h-3 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (globalTodayTeamCommission / 500) * 100)}%` }}></div>
         </div>
         <div className="flex justify-between text-xs text-slate-400 font-medium mb-4">
-          <span>₹{todayCommission.toFixed(2)}</span>
-          <span>₹500</span>
+          <span>₹{globalTodayTeamCommission.toFixed(2)}</span>
+          <span>{globalTodayTeamCommission < 500 ? `${(500 - globalTodayTeamCommission).toFixed(2)} more needed` : '₹500'}</span>
         </div>
         
         <button 
-          disabled={todayCommission < 500 || isDailyBonusClaimed}
+          disabled={globalTodayTeamCommission < 500 || isDailyBonusClaimed}
           onClick={handleClaimDailyBonus}
           className={`w-full py-3 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 ${
             isDailyBonusClaimed 
               ? 'bg-emerald-100 text-emerald-600 cursor-default' 
-              : todayCommission >= 500 
+              : globalTodayTeamCommission >= 500 
                 ? 'bg-indigo-600 text-white hover:bg-indigo-700' 
                 : 'bg-slate-200 text-slate-400 cursor-not-allowed'
           }`}
         >
-          {isDailyBonusClaimed ? 'Today Bonus Claimed' : todayCommission >= 500 ? 'Claim ₹300 Bonus' : 'Reach ₹500 to Claim'}
+          {isDailyBonusClaimed ? 'Today Bonus Claimed' : globalTodayTeamCommission >= 500 ? 'Claim 300 E-Coin' : '500 more needed'}
         </button>
       </div>
 
       {/* Referral Section */}
       <div className="bg-white mt-4 p-5 border-y border-slate-100 shadow-sm">
         <div className="flex items-center gap-2 mb-4">
-          <Users className="w-5 h-5 text-indigo-600" />
-          <h3 className="font-bold text-slate-900">Referral Code</h3>
+          <LinkIcon className="w-5 h-5 text-indigo-600" />
+          <h3 className="font-bold text-slate-900">Invitation Link</h3>
         </div>
         
         <div className="flex flex-col gap-3 mb-6">
           <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div className="flex flex-col overflow-hidden pr-4">
-              <span className="text-xs text-slate-500 font-medium mb-1">Your Unique Code</span>
-              <span className="text-sm text-slate-800 font-bold truncate">{shortId}</span>
+              <span className="text-xs text-slate-500 font-medium mb-1">Your Direct Link</span>
+              <span className="text-sm text-slate-800 font-bold truncate">elivexpay.vercel.app/rs/{shortId}</span>
             </div>
             <button 
-              onClick={handleCopyCode}
+              onClick={() => {
+                navigator.clipboard.writeText(`elivexpay.vercel.app/rs/${shortId}`);
+                toast.success('Invitation link copied!');
+              }}
               className="p-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-600 rounded-lg transition-colors flex items-center gap-2 shrink-0"
             >
-              {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              <span className="text-xs font-bold">{copiedCode ? 'Copied' : 'Copy Code'}</span>
+              <Copy className="w-4 h-4" />
+              <span className="text-xs font-bold">Copy Link</span>
             </button>
           </div>
         </div>
@@ -469,75 +561,8 @@ export default function Team() {
           </div>
         </div>
       </div>
-
-      {/* Team Details Modal */}
-      {showTeamModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center backdrop-blur-sm">
-          <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-300">
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-slate-900 text-lg">Team Details</h3>
-              <button 
-                onClick={() => setShowTeamModal(false)}
-                className="p-2 hover:bg-slate-200 rounded-full transition-colors"
-              >
-                <X className="w-6 h-6 text-slate-500" />
-              </button>
-            </div>
-
-            <div className="flex border-b border-slate-100">
-              {(['L1', 'L2', 'L3'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`flex-1 py-4 text-sm font-bold transition-all border-b-2 ${
-                    activeTab === tab 
-                      ? 'text-indigo-600 border-indigo-600 bg-indigo-50/50' 
-                      : 'text-slate-400 border-transparent hover:text-slate-600'
-                  }`}
-                >
-                  Level {tab.slice(1)} ({
-                    tab === 'L1' ? level1Members.length : 
-                    tab === 'L2' ? level2Members.length : 
-                    level3Members.length
-                  })
-                </button>
-              ))}
-            </div>
-
-            <div className="p-4 max-h-[60vh] overflow-y-auto bg-slate-50/30">
-              <div className="space-y-3">
-                {loadingMembers ? (
-                  <div className="flex justify-center py-12">
-                    <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                  </div>
-                ) : (
-                  (activeTab === 'L1' ? level1Members : activeTab === 'L2' ? level2Members : level3Members).length === 0 ? (
-                    <div className="text-center py-12 text-slate-400 italic">No members found in this level</div>
-                  ) : (
-                    (activeTab === 'L1' ? level1Members : activeTab === 'L2' ? level2Members : level3Members).map((member) => {
-                      return (
-                        <div key={member.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                              <User className="w-5 h-5" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-bold text-slate-900">UID: {member.shortId || '...'}</span>
-                              </div>
-                              <span className="text-xs text-slate-500 font-medium">{member.mobile || 'No mobile'}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
-}
+};
+
+export default Team;

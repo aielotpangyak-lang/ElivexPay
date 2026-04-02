@@ -1,8 +1,9 @@
-import { useState, FormEvent } from 'react';
-import { Lock, Smartphone, Loader2, ChevronRight, UserPlus } from 'lucide-react';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { useState, FormEvent, useEffect } from 'react';
+import { Lock, Smartphone, Loader2, ChevronRight, UserPlus, KeyRound } from 'lucide-react';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithCustomToken, EmailAuthProvider, linkWithCredential, fetchSignInMethodsForEmail } from 'firebase/auth';
 import { doc, setDoc, getDoc, query, where, getDocs, collection, updateDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { auth, db, app } from '../firebase';
 import { useAppStore } from '../store';
 import toast from 'react-hot-toast';
 import Logo from './Logo';
@@ -12,11 +13,25 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
   const [isLogin, setIsLogin] = useState(true);
   const [mobileOrAdmin, setMobileOrAdmin] = useState('');
   const [password, setPassword] = useState('');
-  const [invitationCode, setInvitationCode] = useState('');
-  const [otp, setOtp] = useState('123456'); // Simulated OTP
-  const [step, setStep] = useState<1 | 2 | 3>(1); // 1: Mobile, 2: OTP Display, 3: Password & Invite
+  const [invitationCode, setInvitationCode] = useState(() => {
+    return localStorage.getItem('pending_invitation_code') || '';
+  });
+  const [otp, setOtp] = useState('');
+  const [step, setStep] = useState<1 | 2>(1); // 1: Mobile, 2: OTP & Password & Invite
   const [isLoading, setIsLoading] = useState(false);
+  const [countdown, setCountdown] = useState(0);
   const { setIsAdmin } = useAppStore();
+  const functions = getFunctions(app);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (countdown > 0 && !isLogin && step === 2) {
+      timer = setInterval(() => {
+        setCountdown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [countdown, isLogin, step]);
 
   const handleSendOtp = async (e: FormEvent) => {
     e.preventDefault();
@@ -26,17 +41,28 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
     }
     
     setIsLoading(true);
-    setStep(2); // Show "Fetching OTP" step
-    
-    // Generate random 6-digit OTP
-    const randomOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    setOtp(randomOtp);
 
-    // Simulate OTP fetching delay
-    setTimeout(() => {
+    try {
+      // Send WhatsApp OTP
+      const requestOtpFn = httpsCallable(functions, 'requestWhatsAppOtp');
+      await requestOtpFn({ phone: `91${mobileOrAdmin}` });
+      
+      toast.success('OTP sent via WhatsApp!');
+      setStep(2);
+      setCountdown(60);
+    } catch (error: any) {
+      console.error('Error requesting OTP:', error);
+      const code = error.code || '';
+      if (code === 'functions/resource-exhausted' || error?.message?.includes('Wait 60 seconds')) {
+        toast.error('Please wait 60 seconds before requesting again.');
+      } else if (code === 'functions/already-exists' || error?.message?.includes('Account already exists')) {
+        toast.error('Account already exists. Please login instead.');
+      } else {
+        toast.error(error.message || 'Failed to send OTP. Please try again.');
+      }
+    } finally {
       setIsLoading(false);
-      setStep(3); // Automatically proceed to Password & Invite
-    }, 2500);
+    }
   };
 
   const handleLogin = async (e: FormEvent) => {
@@ -135,6 +161,18 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
     setIsLoading(true);
 
     try {
+      if (!invitationCode) {
+        toast.error('Invitation link is required for registration.');
+        setIsLoading(false);
+        return;
+      }
+
+      if (otp.length !== 6) {
+        toast.error('Please enter a valid 6-digit OTP.');
+        setIsLoading(false);
+        return;
+      }
+
       if (mobileOrAdmin === '9678516469' && password !== 'admin123') {
         toast.error('Invalid admin password.');
         setIsLoading(false);
@@ -168,13 +206,62 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
         }
       }
 
+      // 1. Verify WhatsApp OTP
+      let customToken = '';
+      try {
+        const verifyOtpFn = httpsCallable(functions, 'verifyWhatsAppOtp');
+        const result = await verifyOtpFn({ phone: `91${mobileOrAdmin}`, otp });
+        const data = result.data as { success: boolean; token: string };
+        if (data.success && data.token) {
+          customToken = data.token;
+        } else {
+          throw new Error("Invalid OTP response");
+        }
+      } catch (error: any) {
+        console.error('Error verifying OTP:', error);
+        const code = error.code || '';
+        const msg = error.message || '';
+        
+        if (code === 'functions/invalid-argument' || msg.includes('Invalid OTP')) {
+          toast.error('Wrong OTP');
+        } else if (code === 'functions/deadline-exceeded' || msg.includes('expired') || code === 'functions/not-found') {
+          toast.error('OTP Expired. Please request a new one.');
+          setStep(1);
+          setCountdown(0);
+        } else if (code === 'functions/resource-exhausted' || msg.includes('Too many tries')) {
+          toast.error('Too many tries. Please request a new OTP.');
+          setStep(1);
+          setCountdown(0);
+        } else {
+          toast.error(msg || 'OTP Verification failed');
+        }
+        setIsLoading(false);
+        return;
+      }
+
+      // 2. Sign in with Custom Token (Phone Auth)
+      const userCredential = await signInWithCustomToken(auth, customToken);
+
+      // 3. Link Email/Password credential so user can login with password later
       let loginEmail = `${mobileOrAdmin}@elivex.com`;
       if (mobileOrAdmin === '9678516469') {
         loginEmail = 'admin@elivex.com';
       }
-      const userCredential = await createUserWithEmailAndPassword(auth, loginEmail, password);
       
-      // Backfill referrer's shortId if it was missing (now authenticated)
+      try {
+        const credential = EmailAuthProvider.credential(loginEmail, password);
+        await linkWithCredential(userCredential.user, credential);
+      } catch (linkError: any) {
+        // If email is already in use, it means they registered before but somehow got here.
+        if (linkError.code === 'auth/email-already-in-use' || linkError.code === 'auth/credential-already-in-use') {
+          // We can ignore or handle, but ideally they shouldn't reach here due to the pre-check
+          console.warn("Credential already linked or in use.");
+        } else {
+          throw linkError;
+        }
+      }
+      
+      // Backfill referrer's shortId if it was missing
       if (referrerId && invitationCode) {
         const cleanCode = invitationCode.trim().toLowerCase();
         const userRef = doc(db, 'users', referrerId);
@@ -221,14 +308,15 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
       setIsAdmin(false);
       toast.success('Account created successfully!');
       onLogin();
-      } catch (error: any) {
-        if (error.code === 'auth/email-already-in-use') {
-          toast.error('Account already exists. Please login instead.');
-        } else {
-          const path = auth.currentUser ? `users/${auth.currentUser.uid}` : 'users/registration';
-          handleFirestoreError(error, OperationType.WRITE, path);
-        }
-      } finally {
+    } catch (error: any) {
+      console.error("Registration error:", error);
+      if (error.code === 'auth/email-already-in-use') {
+        toast.error('Account already exists. Please login instead.');
+      } else {
+        const path = auth.currentUser ? `users/${auth.currentUser.uid}` : 'users/registration';
+        handleFirestoreError(error, OperationType.WRITE, path);
+      }
+    } finally {
       setIsLoading(false);
     }
   };
@@ -257,9 +345,10 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
                 <input 
                   type="text" 
                   value={mobileOrAdmin}
-                  onChange={(e) => setMobileOrAdmin(e.target.value)}
+                  onChange={(e) => setMobileOrAdmin(e.target.value.replace(/\D/g, ''))}
                   className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl focus:ring-blue-500 focus:border-blue-500" 
                   placeholder="Enter 10-digit mobile number" 
+                  maxLength={10}
                   required 
                 />
               </div>
@@ -286,32 +375,50 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
 
             <button 
               type="submit" 
-              disabled={isLoading}
+              disabled={isLoading || (!isLogin && countdown > 0)}
               className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isLoading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
                 <>
-                  {isLogin ? 'Login' : 'Send OTP'}
+                  {isLogin ? 'Login' : countdown > 0 ? `Wait ${countdown}s` : 'Send OTP'}
                   <ChevronRight className="w-5 h-5" />
                 </>
               )}
             </button>
           </form>
-        ) : step === 2 ? (
-          <div className="text-center py-12">
-            <div className="flex justify-center mb-6">
-              <div className="relative">
-                <div className="w-16 h-16 border-4 border-indigo-100 rounded-full"></div>
-                <div className="absolute top-0 left-0 w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-              </div>
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Please wait</h3>
-            <p className="text-gray-500 font-medium animate-pulse">Fetching OTP directly from the text...</p>
-          </div>
         ) : (
           <form className="space-y-4" onSubmit={handleRegister}>
+            <div className="text-center mb-4">
+              <p className="text-sm text-gray-600">OTP sent to +91 {mobileOrAdmin}</p>
+              <button 
+                type="button" 
+                onClick={() => setStep(1)}
+                className="text-xs text-indigo-600 hover:underline mt-1"
+              >
+                Change Number
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Enter 6-digit OTP</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <KeyRound className="h-5 w-5 text-gray-400" />
+                </div>
+                <input 
+                  type="text" 
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                  className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl focus:ring-blue-500 focus:border-blue-500 tracking-widest" 
+                  placeholder="123456" 
+                  maxLength={6}
+                  required 
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Set Password</label>
               <div className="relative">
@@ -348,17 +455,27 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
 
             <button 
               type="submit" 
-              disabled={isLoading}
+              disabled={isLoading || otp.length !== 6 || !password || !invitationCode}
               className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isLoading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
                 <>
-                  Register
+                  Verify & Register
                   <ChevronRight className="w-5 h-5" />
                 </>
               )}
+            </button>
+
+            <button 
+              type="button" 
+              variant="outline"
+              className="w-full py-3 rounded-xl font-bold border border-gray-200 text-gray-700 hover:bg-gray-50 transition-all active:scale-95 disabled:opacity-50 mt-2"
+              onClick={handleSendOtp}
+              disabled={isLoading || countdown > 0}
+            >
+              {countdown > 0 ? `Resend OTP in ${countdown}s` : 'Resend OTP'}
             </button>
           </form>
         )}
@@ -371,6 +488,7 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
               setPassword('');
               setMobileOrAdmin('');
               setInvitationCode('');
+              setOtp('');
             }}
             className="text-indigo-600 font-bold hover:underline"
           >

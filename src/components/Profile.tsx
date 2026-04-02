@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, ChevronRight, Coins, TrendingUp, History, ArrowRightLeft, Activity, Lock, ShieldAlert, X, Copy, Check, Gift, PlaySquare, HeadphonesIcon, Send, Instagram, CheckCircle2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { User, ChevronRight, Coins, TrendingUp, History, ArrowRightLeft, Activity, Lock, ShieldAlert, X, Copy, Check, Gift, PlaySquare, HeadphonesIcon, Send, Instagram, CheckCircle2, ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { doc, getDoc, collection, query, where, getDocs, orderBy, updateDoc, setDoc, limit, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../firebase';
@@ -14,7 +14,8 @@ interface BuyRequest {
   amount: number;
   status: 'Pending' | 'Approved' | 'Rejected';
   createdAt: string;
-  utr: string;
+  utr?: string;
+  userUpiId?: string;
 }
 
 interface SellRequest {
@@ -24,13 +25,14 @@ interface SellRequest {
   createdAt: string;
 }
 
-export default function Profile({ onLogout }: { onLogout: () => void }) {
+export default function Profile({ onLogout, onNavigate }: { onLogout: () => void, onNavigate: (tab: any) => void }) {
   const { 
     isAdmin, setIsAdmin, eCoinBalance, todayProfit, totalBought, totalPending, 
     totalApproved, totalSold, themeDeducted, telegramLink, 
-    instagramLink, transactionAmount, hasBoughtAnyAmount,
+    instagramLink, totalBuyAmount, hasBoughtAnyAmount,
     tutorialVideos, careIds, newbieRewardAmount,
-    isTelegramJoined, isInstagramFollowed, newbieRewardClaimed
+    isTelegramJoined, isInstagramFollowed, newbieRewardClaimed,
+    todayTeamCommission, dailyBonusClaimedDate
   } = useAppStore();
 
   const [buyRequests, setBuyRequests] = useState<BuyRequest[]>([]);
@@ -42,9 +44,14 @@ export default function Profile({ onLogout }: { onLogout: () => void }) {
   const [resubmittingId, setResubmittingId] = useState<string | null>(null);
   const [showRecentRequests, setShowRecentRequests] = useState(false);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [view, setView] = useState<'main' | 'activity' | 'ecoin' | 'profit' | 'buy_history' | 'sell_history' | 'newbie_reward' | 'tutorial' | 'service' | 'password'>('main');
   const [activityTab, setActivityTab] = useState<'Added' | 'Deducted'>('Added');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
-  const isTransactionCompleted = transactionAmount >= 5000;
+  const isTransactionCompleted = totalBuyAmount >= 5000;
   const allTasksCompleted = isTelegramJoined && isInstagramFollowed && isTransactionCompleted && hasBoughtAnyAmount;
 
   const handleTaskClick = async (type: 'telegram' | 'instagram') => {
@@ -178,25 +185,63 @@ export default function Profile({ onLogout }: { onLogout: () => void }) {
   );
 
   const handleMenuClick = (id: string) => {
-    if (id === 'telegram') {
-      window.open(telegramLink, '_blank');
-    } else if (id === 'instagram') {
-      window.open(instagramLink, '_blank');
+    if (id === 'team') {
+      window.history.replaceState({}, '', '?teamView=details');
+      onNavigate('team');
+    } else if (id === 'logout') {
+      onLogout();
     } else {
-      if (id === 'buy_history' || id === 'sell_history') {
+      if (id === 'buy_history' || id === 'sell_history' || id === 'activity') {
         fetchHistory();
       }
-      setActiveModal(id);
+      setView(id as any);
     }
   };
 
-  const handleResetPassword = () => {
-    if (password.length < 6) {
+  const handleResetPassword = async () => {
+    if (!auth.currentUser) return;
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast.error('Please fill all fields');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    if (newPassword.length < 6) {
       toast.error('Password must be at least 6 characters');
       return;
     }
-    toast.success('Password reset successfully');
-    closeModal();
+
+    setIsResetting(true);
+    try {
+      const { EmailAuthProvider, reauthenticateWithCredential, updatePassword } = await import('firebase/auth');
+      const credential = EmailAuthProvider.credential(auth.currentUser.email!, currentPassword);
+      
+      try {
+        await reauthenticateWithCredential(auth.currentUser, credential);
+      } catch (e: any) {
+        if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
+          toast.error('Invalid old password');
+        } else {
+          toast.error('Failed to verify old password');
+        }
+        setIsResetting(false);
+        return;
+      }
+
+      await updatePassword(auth.currentUser, newPassword);
+      toast.success('Password updated successfully');
+      setView('main');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      toast.error('Failed to update password');
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   const handleClaimNewbieReward = async () => {
@@ -262,158 +307,110 @@ export default function Profile({ onLogout }: { onLogout: () => void }) {
     { id: 'buy_history', icon: <History className="w-5 h-5 text-blue-500" />, label: "Buy History" },
     { id: 'sell_history', icon: <ArrowRightLeft className="w-5 h-5 text-orange-500" />, label: "Sell History" },
     { id: 'activity', icon: <Activity className="w-5 h-5 text-purple-500" />, label: "Activity" },
-    { id: 'newbie_reward', icon: <Gift className="w-5 h-5 text-rose-500" />, label: "Newbie Reward" },
+    { id: 'newbie_reward', icon: <Gift className="w-5 h-5 text-rose-500" />, label: "New Reward" },
     { id: 'team', icon: <User className="w-5 h-5 text-indigo-600" />, label: "My Team" },
-    { id: 'invite', icon: <Send className="w-5 h-5 text-blue-600" />, label: "Invite" },
     { id: 'tutorial', icon: <PlaySquare className="w-5 h-5 text-red-500" />, label: "Tutorial" },
     { id: 'service', icon: <HeadphonesIcon className="w-5 h-5 text-teal-500" />, label: "Service" },
     { id: 'password', icon: <Lock className="w-5 h-5 text-slate-500" />, label: "Password" },
-    { id: 'logout', icon: <ArrowRightLeft className="w-5 h-5 text-rose-500 rotate-180" />, label: "Logout" },
   ];
 
-  return (
-    <div className="flex flex-col pb-24 bg-slate-50 min-h-screen relative">
-      {/* Header */}
-      <div className="text-center py-4 font-bold text-slate-900 border-b border-slate-100 bg-white">
-        My Profile
-      </div>
-
-      <ProfileHeader shortId={shortId} mobile={mobile} copied={copied} setCopied={setCopied} />
-
-      {/* Recent Buy Requests Preview */}
-      <div className="px-6 mt-4">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-            <History className="w-4 h-4 text-indigo-600" />
-            Recent Buy Requests
-          </h3>
-          <div className="flex gap-3">
+  if (view === 'ecoin') {
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
+          </button>
+          <h2 className="font-bold text-slate-900 text-lg">My E-Coin</h2>
+        </div>
+        <div className="p-6">
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center">
+            <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Coins className="w-10 h-10 text-indigo-600" />
+            </div>
+            <span className="text-slate-400 text-sm font-bold uppercase tracking-widest block mb-1">Current Balance</span>
+            <h3 className="text-4xl font-black text-slate-900 mb-6">₹{eCoinBalance.toFixed(2)}</h3>
             <button 
-              onClick={() => setShowRecentRequests(!showRecentRequests)}
-              className="text-[10px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 px-2 py-1 rounded-md"
+              onClick={() => onNavigate('buy')}
+              className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-100 active:scale-95 transition-all"
             >
-              {showRecentRequests ? 'Hide' : 'View'}
-            </button>
-            <button 
-              onClick={() => handleMenuClick('buy_history')}
-              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700"
-            >
-              View All
+              Buy More E-Coin
             </button>
           </div>
         </div>
-        
-        {showRecentRequests && (
-          <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-            {recentBuyRequests.length === 0 ? (
-              <div className="text-center py-4 bg-white rounded-xl border border-dashed border-slate-200">
-                <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">No recent requests</p>
-              </div>
-            ) : (
-              recentBuyRequests.map((req) => (
-                <div 
-                  key={req.id} 
-                  onClick={() => handleMenuClick('buy_history')}
-                  className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex justify-between items-center active:scale-[0.98] transition-transform cursor-pointer"
-                >
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Order {req.orderNo}</span>
-                    <span className="text-xs font-bold text-slate-700">₹{req.amount}</span>
-                  </div>
-                  <div className="text-right flex flex-col items-end gap-1">
-                    <span className={`text-[8px] font-black px-2 py-0.5 rounded-lg uppercase tracking-tighter ${
-                      req.status === 'Pending' ? 'bg-amber-100 text-amber-600' :
-                      req.status === 'Approved' ? 'bg-emerald-100 text-emerald-600' :
-                      'bg-rose-100 text-rose-600'
-                    }`}>
-                      {req.status}
-                    </span>
-                    {req.status === 'Pending' && (
-                      <span className="text-[7px] font-bold text-indigo-500 animate-pulse">Click to Edit UTR</span>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
       </div>
+    );
+  }
 
-      <ProfileMenu menuItems={menuItems} onMenuClick={handleMenuClick} />
-
-      <div className="p-6 mt-2 space-y-3">
-        {isAdmin && (
-          <button 
-            onClick={() => setActiveModal('admin_panel')}
-            className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-md"
-          >
-            <ShieldAlert className="w-5 h-5" />
-            Admin Panel
+  if (view === 'profit') {
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
           </button>
-        )}
-        
-        <button 
-          onClick={onLogout}
-          className="w-full py-3.5 border border-rose-200 bg-rose-50 text-rose-600 rounded-xl font-bold hover:bg-rose-100 transition-colors shadow-sm"
-        >
-          Sign Out
-        </button>
-      </div>
-
-      {/* Modals */}
-      {activeModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
-            <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-slate-900 capitalize">
-                {activeModal.replace('_', ' ')}
-              </h3>
-              <button onClick={closeModal} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-                <X className="w-5 h-5 text-slate-500" />
-              </button>
+          <h2 className="font-bold text-slate-900 text-lg">Today's Profit</h2>
+        </div>
+        <div className="p-6">
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center">
+            <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <TrendingUp className="w-10 h-10 text-emerald-600" />
             </div>
-            
-            <div className="p-5">
-              {activeModal === 'buy_history' && (
-                <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
-                  <div className="grid grid-cols-3 gap-2 mb-2">
-                    <div className="text-center p-2 bg-slate-50 rounded-lg border border-slate-100">
-                      <span className="text-[8px] font-bold text-slate-400 uppercase block">Total</span>
-                      <span className="text-xs font-bold text-indigo-600">₹{totalBought.toFixed(0)}</span>
-                    </div>
-                    <div className="text-center p-2 bg-amber-50 rounded-lg border border-amber-100">
-                      <span className="text-[8px] font-bold text-amber-400 uppercase block">Pending</span>
-                      <span className="text-xs font-bold text-amber-600">₹{totalPending.toFixed(0)}</span>
-                    </div>
-                    <div className="text-center p-2 bg-emerald-50 rounded-lg border border-emerald-100">
-                      <span className="text-[8px] font-bold text-emerald-400 uppercase block">Approved</span>
-                      <span className="text-xs font-bold text-emerald-600">₹{totalApproved.toFixed(0)}</span>
-                    </div>
-                  </div>
+            <span className="text-slate-400 text-sm font-bold uppercase tracking-widest block mb-1">Total Profit Today</span>
+            <h3 className="text-4xl font-black text-emerald-600 mb-2">₹{todayProfit.toFixed(2)}</h3>
+            <p className="text-slate-400 text-xs font-medium">Profit resets every 24 hours</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-                  {/* Status Tabs */}
-                  <div className="flex bg-slate-100 p-1 rounded-xl mb-4">
-                    {(['Pending', 'Approved', 'Rejected'] as const).map((tab) => (
-                      <button
-                        key={tab}
-                        onClick={() => setBuyHistoryTab(tab)}
-                        className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all ${
-                          buyHistoryTab === tab 
-                            ? 'bg-white text-indigo-600 shadow-sm' 
-                            : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
+  if (view === 'buy_history') {
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
+          </button>
+          <h2 className="font-bold text-slate-900 text-lg">Buy History</h2>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="text-center p-3 bg-white rounded-2xl border border-slate-100 shadow-sm">
+              <span className="text-[8px] font-bold text-slate-400 uppercase block">Total</span>
+              <span className="text-xs font-bold text-indigo-600">₹{totalBought.toFixed(0)}</span>
+            </div>
+            <div className="text-center p-3 bg-white rounded-2xl border border-slate-100 shadow-sm">
+              <span className="text-[8px] font-bold text-amber-400 uppercase block">Pending</span>
+              <span className="text-xs font-bold text-amber-600">₹{totalPending.toFixed(0)}</span>
+            </div>
+            <div className="text-center p-3 bg-white rounded-2xl border border-slate-100 shadow-sm">
+              <span className="text-[8px] font-bold text-emerald-400 uppercase block">Approved</span>
+              <span className="text-xs font-bold text-emerald-600">₹{totalApproved.toFixed(0)}</span>
+            </div>
+          </div>
 
+          <div className="flex bg-slate-100 p-1 rounded-xl">
+            {(['Pending', 'Approved', 'Rejected'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setBuyHistoryTab(tab)}
+                className={`flex-1 py-2.5 text-[10px] font-bold rounded-lg transition-all ${
+                  buyHistoryTab === tab ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-3">
                   {loadingHistory ? (
-                    <div className="flex justify-center py-8">
-                      <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                    <div className="flex justify-center py-12">
+                      <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
                     </div>
                   ) : buyRequests.filter(r => r.status === buyHistoryTab).length === 0 ? (
-                    <div className="text-center py-8 text-slate-400 text-xs italic">No {buyHistoryTab.toLowerCase()} requests found</div>
+                    <div className="text-center py-12 text-slate-400 text-xs italic">No {buyHistoryTab.toLowerCase()} requests found</div>
                   ) : (
                     buyRequests.filter(r => r.status === buyHistoryTab).map(req => (
                       <div key={req.id} className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm space-y-3">
@@ -431,369 +428,409 @@ export default function Profile({ onLogout }: { onLogout: () => void }) {
                             {req.status}
                           </span>
                         </div>
-                        
                         <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 bg-slate-50 p-2 rounded-lg">
-                          <span>UTR: {req.utr}</span>
+                          {req.utr ? <span>UTR: {req.utr}</span> : <span>UPI ID: {req.userUpiId}</span>}
                         </div>
-
                         {req.status === 'Pending' && (
-                          <div className="grid grid-cols-2 gap-2 pt-1">
-                            <button 
-                              onClick={() => handleMenuClick('service')}
-                              className="flex items-center justify-center gap-1.5 py-2 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold hover:bg-slate-200 transition-colors"
-                            >
-                              <HeadphonesIcon className="w-3 h-3" />
-                              Support
-                            </button>
-                            <button 
-                              onClick={() => {
-                                setResubmittingId(req.id);
-                                setResubmitUtr(req.utr);
-                              }}
-                              className="flex items-center justify-center gap-1.5 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold hover:bg-indigo-100 transition-colors border border-indigo-100"
-                            >
-                              <ArrowRightLeft className="w-3 h-3" />
-                              Edit UTR
-                            </button>
-                          </div>
-                        )}
-
-                        {resubmittingId === req.id && (
-                          <div className="pt-2 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                            <input 
-                              type="text"
-                              value={resubmitUtr}
-                              onChange={(e) => setResubmitUtr(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                              placeholder="Enter 12-digit UTR"
-                              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                            <div className="flex gap-2">
-                              <button 
-                                onClick={() => setResubmittingId(null)}
-                                className="flex-1 py-2 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-bold"
-                              >
-                                Cancel
-                              </button>
-                              <button 
-                                onClick={() => handleResubmitUtr(req.id)}
-                                className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-[10px] font-bold shadow-sm"
-                              >
-                                Resubmit
-                              </button>
-                            </div>
+                          <div className="grid grid-cols-1 gap-2">
+                            <button onClick={() => setView('service')} className="py-2 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold">Support</button>
                           </div>
                         )}
                       </div>
                     ))
                   )}
-                </div>
-              )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-              {activeModal === 'sell_history' && (
-                <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1">
-                  <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-xl border border-indigo-100 mb-2">
-                    <span className="text-indigo-800 font-bold text-xs">Total Sold</span>
-                    <span className="font-black text-indigo-600 text-lg">₹{totalSold.toFixed(2)}</span>
+  if (view === 'sell_history') {
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
+          </button>
+          <h2 className="font-bold text-slate-900 text-lg">Sell History</h2>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center">
+            <span className="text-slate-500 font-bold text-xs uppercase tracking-widest">Total Sold</span>
+            <span className="font-black text-indigo-600 text-xl">₹{totalSold.toFixed(2)}</span>
+          </div>
+          <div className="space-y-3">
+            {loadingHistory ? (
+              <div className="flex justify-center py-12">
+                <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            ) : sellRequests.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-xs italic">No sell requests found</div>
+            ) : (
+              sellRequests.map(req => (
+                <div key={req.id} className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">{new Date(req.createdAt).toLocaleDateString()}</span>
+                    <span className="text-xs font-bold text-slate-700">Withdrawal</span>
                   </div>
+                  <div className="text-right">
+                    <span className="text-base font-black text-slate-900 block">₹{req.amount}</span>
+                    <span className={`text-[8px] font-bold px-2 py-0.5 rounded uppercase ${
+                      req.status === 'Pending' ? 'bg-amber-100 text-amber-600' :
+                      req.status === 'Approved' ? 'bg-emerald-100 text-emerald-600' :
+                      'bg-rose-100 text-rose-600'
+                    }`}>
+                      {req.status}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-                  {loadingHistory ? (
-                    <div className="flex justify-center py-8">
-                      <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+  if (view === 'newbie_reward') {
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
+          </button>
+          <h2 className="font-bold text-slate-900 text-lg">New Reward</h2>
+        </div>
+        <div className="p-6">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Gift className="w-10 h-10" />
+            </div>
+            <h4 className="font-black text-2xl text-slate-900 mb-2">Newbie Reward</h4>
+            <p className="text-slate-500 text-sm font-medium">Complete tasks to claim your bonus!</p>
+          </div>
+
+          <div className="space-y-4">
+            <button onClick={() => handleTaskClick('telegram')} className="w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isTelegramJoined ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
+                  {isTelegramJoined ? <CheckCircle2 className="w-6 h-6" /> : <Send className="w-6 h-6" />}
+                </div>
+                <div className="text-left">
+                  <span className="font-bold block text-sm">Subscribe Channel</span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{isTelegramJoined ? 'Completed' : 'Join Telegram'}</span>
+                </div>
+              </div>
+              {!isTelegramJoined && <div className="bg-indigo-600 text-white text-[10px] font-black px-4 py-1.5 rounded-full">GO</div>}
+            </button>
+
+            <button onClick={() => handleTaskClick('instagram')} className="w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isInstagramFollowed ? 'bg-emerald-50 text-emerald-600' : 'bg-pink-50 text-pink-600'}`}>
+                  {isInstagramFollowed ? <CheckCircle2 className="w-6 h-6" /> : <Instagram className="w-6 h-6" />}
+                </div>
+                <div className="text-left">
+                  <span className="font-bold block text-sm">Follow Instagram</span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{isInstagramFollowed ? 'Completed' : 'Follow Us'}</span>
+                </div>
+              </div>
+              {!isInstagramFollowed && <div className="bg-indigo-600 text-white text-[10px] font-black px-4 py-1.5 rounded-full">GO</div>}
+            </button>
+
+            <div className="w-full p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-4">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isTransactionCompleted ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                    {isTransactionCompleted ? <CheckCircle2 className="w-6 h-6" /> : <ArrowRightLeft className="w-6 h-6" />}
+                  </div>
+                  <div className="text-left">
+                    <span className="font-bold block text-sm">₹5,000 Total Purchase</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">₹{totalBuyAmount} / ₹5000</span>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => handleMenuClick('buy_history')}
+                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 hover:underline transition-all"
+                >
+                  View History
+                </button>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                <div className={`h-full transition-all duration-500 ${isTransactionCompleted ? 'bg-emerald-500' : 'bg-indigo-600'}`} style={{ width: `${Math.min((totalBuyAmount / 5000) * 100, 100)}%` }}></div>
+              </div>
+            </div>
+
+            <button 
+              disabled={!allTasksCompleted || newbieRewardClaimed}
+              onClick={handleClaimNewbieReward}
+              className={`w-full py-5 rounded-2xl font-black text-base shadow-xl transition-all active:scale-95 mt-4 ${
+                newbieRewardClaimed ? 'bg-emerald-100 text-emerald-600' : allTasksCompleted ? 'bg-indigo-600 text-white shadow-indigo-100' : 'bg-slate-200 text-slate-400'
+              }`}
+            >
+              {newbieRewardClaimed ? 'Reward Claimed' : allTasksCompleted ? `Claim ₹${newbieRewardAmount} Reward` : 'Complete Tasks to Claim'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'tutorial') {
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
+          </button>
+          <h2 className="font-bold text-slate-900 text-lg">Tutorial</h2>
+        </div>
+        <div className="p-4 space-y-4">
+          {tutorialVideos.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 italic">No tutorials available</div>
+          ) : (
+            tutorialVideos.map((video, idx) => (
+              <div key={idx} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
+                <div className="aspect-video bg-slate-900 flex items-center justify-center">
+                  <PlaySquare className="w-12 h-12 text-white/20" />
+                </div>
+                <div className="p-4">
+                  <h4 className="font-bold text-slate-800">Tutorial Video {idx + 1}</h4>
+                  <button onClick={() => window.open(video, '_blank')} className="mt-3 w-full py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold border border-indigo-100">Watch Now</button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'service') {
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
+          </button>
+          <h2 className="font-bold text-slate-900 text-lg">Customer Service</h2>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 text-center">
+            <div className="w-16 h-16 bg-teal-50 text-teal-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <HeadphonesIcon className="w-8 h-8" />
+            </div>
+            <h4 className="font-bold text-slate-900 mb-2">Need Help?</h4>
+            <p className="text-slate-500 text-xs mb-6">Our support team is available 24/7 to assist you with any issues.</p>
+            <div className="space-y-3">
+              {careIds.map((id, idx) => (
+                <button 
+                  key={idx}
+                  onClick={() => window.open(`https://t.me/${id}`, '_blank')}
+                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
+                >
+                  <Send className="w-5 h-5" />
+                  Support Agent {idx + 1}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'password') {
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
+          </button>
+          <h2 className="font-bold text-slate-900 text-lg">Change Password</h2>
+        </div>
+        <div className="p-6 space-y-6">
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-2 block uppercase tracking-widest ml-1">Current Password</label>
+              <input 
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Enter current password"
+                className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-2 block uppercase tracking-widest ml-1">New Password</label>
+              <input 
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Enter new password"
+                className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-2 block uppercase tracking-widest ml-1">Confirm New Password</label>
+              <input 
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Confirm new password"
+                className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+            </div>
+          </div>
+          <button 
+            disabled={isResetting}
+            onClick={handleResetPassword}
+            className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-base shadow-xl shadow-indigo-100 active:scale-95 transition-all flex items-center justify-center gap-2"
+          >
+            {isResetting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Update Password'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'activity') {
+    const totalAdded = addedTransactions.reduce((sum, t) => sum + (t.amount || t.total || 0), 0);
+    const totalDeducted = deductedTransactions.reduce((sum, t) => sum + (t.amount || t.total || 0), 0);
+    const rewardsReceived = transactions.filter(t => t.type === 'Referral' || t.type === 'TeamBonus' || t.type === 'Reward')
+      .reduce((sum, t) => sum + (t.amount || t.total || 0), 0);
+    const ordersForRewards = buyRequests.length;
+
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        {/* Header */}
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
+          </button>
+          <h2 className="font-bold text-slate-900 text-lg">Activity History</h2>
+        </div>
+
+        <div className="p-4 flex-1">
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Total Added</span>
+              <span className="text-lg font-black text-emerald-600">₹{totalAdded.toFixed(2)}</span>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Total Deducted</span>
+              <span className="text-lg font-black text-rose-600">₹{totalDeducted.toFixed(2)}</span>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Orders for Reward</span>
+              <span className="text-lg font-black text-indigo-600">{ordersForRewards}</span>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Rewards Received</span>
+              <span className="text-lg font-black text-amber-600">₹{rewardsReceived.toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div className="flex bg-slate-100 p-1 rounded-xl mb-6">
+            <button 
+              onClick={() => setActivityTab('Added')}
+              className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${activityTab === 'Added' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+            >
+              Added
+            </button>
+            <button 
+              onClick={() => setActivityTab('Deducted')}
+              className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${activityTab === 'Deducted' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500'}`}
+            >
+              Deducted
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {(activityTab === 'Added' ? addedTransactions : deductedTransactions).length === 0 ? (
+              <div className="text-center py-12">
+                <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <History className="w-8 h-8 text-slate-300" />
+                </div>
+                <p className="text-slate-400 text-sm font-medium">No transactions found</p>
+              </div>
+            ) : (
+              (activityTab === 'Added' ? addedTransactions : deductedTransactions).map((t) => (
+                <div key={t.id} className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                      activityTab === 'Added' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+                    }`}>
+                      {activityTab === 'Added' ? <ArrowUpRight className="w-6 h-6" /> : <ArrowDownRight className="w-6 h-6" />}
                     </div>
-                  ) : sellRequests.length === 0 ? (
-                    <div className="text-center py-8 text-slate-400 text-xs italic">No sell requests found</div>
-                  ) : (
-                    sellRequests.map(req => (
-                      <div key={req.id} className="p-3 bg-white rounded-xl border border-slate-100 shadow-sm flex justify-between items-center">
-                        <div>
-                          <span className="text-[10px] text-slate-400 block">{new Date(req.createdAt).toLocaleDateString()}</span>
-                          <span className="text-[10px] font-bold text-slate-500">Withdrawal</span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-sm font-black text-slate-900 block">₹{req.amount}</span>
-                          <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                            req.status === 'Pending' ? 'bg-amber-100 text-amber-600' :
-                            req.status === 'Approved' ? 'bg-emerald-100 text-emerald-600' :
-                            'bg-rose-100 text-rose-600'
-                          }`}>
-                            {req.status}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-
-              {activeModal === 'activity' && (
-                <div className="space-y-4">
-                  <div className="flex bg-slate-100 p-1 rounded-xl mb-4">
-                    <button 
-                      onClick={() => setActivityTab('Added')}
-                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activityTab === 'Added' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                    >
-                      Added
-                    </button>
-                    <button 
-                      onClick={() => setActivityTab('Deducted')}
-                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activityTab === 'Deducted' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500'}`}
-                    >
-                      Deducted
-                    </button>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800">{t.reason || t.type}</h4>
+                      <p className="text-xs text-slate-400 font-medium">{new Date(t.createdAt).toLocaleString()}</p>
+                    </div>
                   </div>
-
-                  <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                    {(activityTab === 'Added' ? addedTransactions : deductedTransactions).length === 0 ? (
-                      <div className="text-center py-12">
-                        <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
-                          <History className="w-6 h-6 text-slate-300" />
-                        </div>
-                        <p className="text-slate-400 text-xs font-medium">No transactions found</p>
-                      </div>
-                    ) : (
-                      (activityTab === 'Added' ? addedTransactions : deductedTransactions).map((t) => (
-                        <div key={t.id} className="bg-white border border-slate-100 p-3 rounded-xl shadow-sm flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                              activityTab === 'Added' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
-                            }`}>
-                              {activityTab === 'Added' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}
-                            </div>
-                            <div>
-                              <h4 className="text-xs font-bold text-slate-800">{t.reason || t.type}</h4>
-                              <p className="text-[10px] text-slate-400 font-medium">{new Date(t.createdAt).toLocaleString()}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <span className={`text-sm font-black ${
-                              activityTab === 'Added' ? 'text-emerald-600' : 'text-rose-600'
-                            }`}>
-                              {activityTab === 'Added' ? '+' : '-'}₹{t.amount || t.total}
-                            </span>
-                            {t.reward > 0 && (
-                              <p className="text-[9px] text-emerald-500 font-bold">Incl. ₹{t.reward} Bonus</p>
-                            )}
-                          </div>
-                        </div>
-                      ))
+                  <div className="text-right">
+                    <span className={`text-base font-black ${
+                      activityTab === 'Added' ? 'text-emerald-600' : 'text-rose-600'
+                    }`}>
+                      {activityTab === 'Added' ? '+' : '-'}₹{(t.amount || t.total || 0).toFixed(2)}
+                    </span>
+                    {t.reward > 0 && (
+                      <p className="text-[10px] text-emerald-500 font-bold">Incl. ₹{t.reward} Bonus</p>
                     )}
                   </div>
                 </div>
-              )}
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-              {activeModal === 'newbie_reward' && (
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Gift className="w-8 h-8" />
-                  </div>
-                  <h4 className="font-bold text-lg text-slate-900 mb-2">Newbie Reward</h4>
-                  <p className="text-slate-600 text-sm mb-6">
-                    Complete all 3 tasks to claim ₹{newbieRewardAmount}!
-                  </p>
-                  
-                  <div className="space-y-3">
-                    {/* Telegram */}
-                    <button 
-                      onClick={() => handleTaskClick('telegram')}
-                      className="w-full flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 hover:bg-slate-100 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isTelegramJoined ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>
-                          {isTelegramJoined ? <CheckCircle2 className="w-5 h-5" /> : <Send className="w-5 h-5" />}
-                        </div>
-                        <div className="text-left">
-                          <span className={`font-bold block text-sm ${isTelegramJoined ? 'text-emerald-600' : 'text-slate-900'}`}>
-                            Subscribe Channel
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
-                            {isTelegramJoined ? 'Completed' : 'Join Telegram'}
-                          </span>
-                        </div>
-                      </div>
-                      {!isTelegramJoined && (
-                        <div className="bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-sm">
-                          GO
-                        </div>
-                      )}
-                    </button>
+  return (
+    <div className="flex flex-col pb-24 bg-slate-50 min-h-screen relative">
+      {/* Header */}
+      <div className="text-center py-4 font-bold text-slate-900 border-b border-slate-100 bg-white">
+        My Profile
+      </div>
 
-                    {/* Instagram */}
-                    <button 
-                      onClick={() => handleTaskClick('instagram')}
-                      className="w-full flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 hover:bg-slate-100 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isInstagramFollowed ? 'bg-emerald-100 text-emerald-600' : 'bg-pink-100 text-pink-600'}`}>
-                          {isInstagramFollowed ? <CheckCircle2 className="w-5 h-5" /> : <Instagram className="w-5 h-5" />}
-                        </div>
-                        <div className="text-left">
-                          <span className={`font-bold block text-sm ${isInstagramFollowed ? 'text-emerald-600' : 'text-slate-900'}`}>
-                            Follow Instagram
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
-                            {isInstagramFollowed ? 'Completed' : 'Follow Us'}
-                          </span>
-                        </div>
-                      </div>
-                      {!isInstagramFollowed && (
-                        <div className="bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-sm">
-                          GO
-                        </div>
-                      )}
-                    </button>
+      <ProfileHeader shortId={shortId} mobile={mobile} copied={copied} setCopied={setCopied} />
 
-                    {/* Buy Any Amount */}
-                    <div className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 text-left">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${hasBoughtAnyAmount ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
-                            {hasBoughtAnyAmount ? <CheckCircle2 className="w-5 h-5" /> : <Coins className="w-5 h-5" />}
-                          </div>
-                          <div>
-                            <span className={`font-bold block text-sm ${hasBoughtAnyAmount ? 'text-emerald-600' : 'text-slate-900'}`}>
-                              Buy Any Amount
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
-                              {hasBoughtAnyAmount ? 'Completed' : 'Purchase any E-Coin order'}
-                            </span>
-                          </div>
-                        </div>
-                        {!hasBoughtAnyAmount && (
-                          <button 
-                            onClick={() => { closeModal(); window.location.hash = '#buy'; }}
-                            className="bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-sm"
-                          >
-                            GO
-                          </button>
-                        )}
-                      </div>
-                    </div>
+      <ProfileMenu menuItems={menuItems} onMenuClick={handleMenuClick} />
 
-                    {/* Transactions */}
-                    <div className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 text-left">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isTransactionCompleted ? 'bg-emerald-100 text-emerald-600' : 'bg-indigo-100 text-indigo-600'}`}>
-                            {isTransactionCompleted ? <CheckCircle2 className="w-5 h-5" /> : <ArrowRightLeft className="w-5 h-5" />}
-                          </div>
-                          <div>
-                            <span className={`font-bold block text-sm ${isTransactionCompleted ? 'text-emerald-600' : 'text-slate-900'}`}>
-                              5,000 Total Buy
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
-                              ₹{transactionAmount} / ₹5000
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                        <div 
-                          className={`h-full transition-all duration-500 ${isTransactionCompleted ? 'bg-emerald-500' : 'bg-indigo-600'}`}
-                          style={{ width: `${Math.min((transactionAmount / 5000) * 100, 100)}%` }}
-                        ></div>
-                      </div>
-                    </div>
+      <div className="p-6 mt-12 space-y-3 pb-12">
+        {isAdmin && (
+          <button 
+            onClick={() => onNavigate('admin')}
+            className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-md"
+          >
+            <ShieldAlert className="w-5 h-5" />
+            Admin Panel
+          </button>
+        )}
+        
+        <button 
+          onClick={onLogout}
+          className="w-full py-4 border border-rose-200 bg-rose-50 text-rose-600 rounded-2xl font-bold hover:bg-rose-100 transition-colors shadow-sm active:scale-95 transition-all"
+        >
+          Logout
+        </button>
+      </div>
 
-                    {/* Claim Button */}
-                    <button 
-                      disabled={!allTasksCompleted || newbieRewardClaimed}
-                      onClick={handleClaimNewbieReward}
-                      className={`w-full py-3 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 mt-4 ${
-                        newbieRewardClaimed 
-                          ? 'bg-emerald-100 text-emerald-600 cursor-default' 
-                          : allTasksCompleted 
-                            ? 'bg-rose-500 text-white hover:bg-rose-600' 
-                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                      }`}
-                    >
-                      {newbieRewardClaimed 
-                        ? 'Reward Claimed' 
-                        : allTasksCompleted 
-                          ? `Claim ₹${newbieRewardAmount} Reward` 
-                          : 'Complete All Tasks'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeModal === 'tutorial' && (
-                <div className="text-center">
-                  <PlaySquare className="w-12 h-12 text-red-500 mx-auto mb-4" />
-                  <h4 className="font-bold text-slate-900 mb-2">Tutorial Videos</h4>
-                  <p className="text-slate-600 text-sm mb-6">Watch these videos to learn how to use ElivexPay.</p>
-                  
-                  <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                    {tutorialVideos.map((url, index) => (
-                      <button 
-                        key={index}
-                        onClick={() => window.open(url, '_blank')}
-                        className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 hover:bg-slate-100 transition-colors group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 group-hover:scale-110 transition-transform">
-                            <PlaySquare className="w-5 h-5" />
-                          </div>
-                          <span className="font-bold text-slate-800 text-sm">Tutorial Video #{index + 1}</span>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-slate-400" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeModal === 'service' && (
-                <div className="text-center py-4">
-                  <HeadphonesIcon className="w-12 h-12 text-teal-500 mx-auto mb-4" />
-                  <h4 className="font-bold text-slate-900 mb-2">Customer Service</h4>
-                  <p className="text-slate-600 text-sm mb-6">We're here to help you 24/7.</p>
-                  
-                  <div className="space-y-3">
-                    {careIds.map((id, index) => (
-                      <a 
-                        key={index}
-                        href={`https://t.me/${id.replace('@', '')}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-full flex items-center justify-between p-4 bg-blue-50 rounded-xl border border-blue-100 hover:bg-blue-100 transition-colors group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
-                            <Send className="w-5 h-5" />
-                          </div>
-                          <div className="text-left">
-                            <span className="font-bold text-blue-900 text-sm block">Support Agent #{index + 1}</span>
-                            <span className="text-blue-600 text-xs font-medium">{id}</span>
-                          </div>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-blue-400" />
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeModal === 'password' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">New Password</label>
-                    <input 
-                      type="password" 
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50"
-                      placeholder="Enter new password"
-                    />
-                  </div>
-                  <button 
-                    onClick={handleResetPassword}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-md transition-colors"
-                  >
-                    Reset Password
-                  </button>
-                </div>
-              )}
-              
+      {/* Modals */}
+      {activeModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-bold text-slate-900 capitalize">
+                {activeModal.replace('_', ' ')}
+              </h3>
+              <button onClick={closeModal} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            
+            <div className="p-5">
               {activeModal === 'admin_panel' && (
                 <div className="text-center py-6">
                   <ShieldAlert className="w-12 h-12 text-slate-800 mx-auto mb-4" />

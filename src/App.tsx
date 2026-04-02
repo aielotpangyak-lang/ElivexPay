@@ -22,7 +22,7 @@ export default function App() {
     isAdmin, setIsAdmin, setECoinBalance,
     setNewsText, setTelegramLink, setInstagramLink, 
     setTutorialVideos, setBanners, setCareIds, setNewbieRewardAmount,
-    setTodayProfit, setTransactionAmount, setHasBoughtAnyAmount,
+    setTodayProfit, setTotalBuyAmount, setHasBoughtAnyAmount,
     setIsTelegramJoined, setIsInstagramFollowed, setNewbieRewardClaimed,
     setShortId, setMobile
   } = useAppStore();
@@ -31,6 +31,17 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
 
   useEffect(() => {
+    // Handle invitation link
+    const path = window.location.pathname;
+    if (path.startsWith('/rs/')) {
+      const code = path.split('/rs/')[1];
+      if (code) {
+        localStorage.setItem('pending_invitation_code', code);
+        // Redirect to root to show Auth component
+        window.history.replaceState({}, '', '/');
+      }
+    }
+
     // Sync global settings
     const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
       if (snapshot.exists()) {
@@ -67,18 +78,43 @@ export default function App() {
 
           // Real-time sync for user data
           if (unsubUser) unsubUser();
-          unsubUser = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
+          unsubUser = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
             if (snapshot.exists()) {
               const data = snapshot.data();
+              const today = new Date().toISOString().split('T')[0];
+              
+              // Reset todayProfit and todayTeamCommission if it's a new day
+              if ((data.lastProfitDate !== today && data.todayProfit !== 0) || (data.lastCommissionDate !== today && data.todayTeamCommission !== 0)) {
+                try {
+                  const { updateDoc: firestoreUpdateDoc } = await import('firebase/firestore');
+                  const updates: any = {};
+                  if (data.lastProfitDate !== today) {
+                    updates.todayProfit = 0;
+                    updates.lastProfitDate = today;
+                  }
+                  if (data.lastCommissionDate !== today) {
+                    updates.todayTeamCommission = 0;
+                    updates.lastCommissionDate = today;
+                  }
+                  if (Object.keys(updates).length > 0) {
+                    await firestoreUpdateDoc(doc(db, 'users', user.uid), updates);
+                  }
+                } catch (e) {
+                  console.error("Error resetting daily stats:", e);
+                }
+              }
+
               if (data.eCoinBalance !== undefined) setECoinBalance(data.eCoinBalance);
               if (data.todayProfit !== undefined) setTodayProfit(data.todayProfit);
-              if (data.transactionAmount !== undefined) setTransactionAmount(data.transactionAmount);
+              if (data.totalBuyAmount !== undefined) setTotalBuyAmount(data.totalBuyAmount);
               if (data.hasBoughtAnyAmount !== undefined) setHasBoughtAnyAmount(data.hasBoughtAnyAmount);
               if (data.telegramJoined !== undefined) setIsTelegramJoined(data.telegramJoined);
               if (data.instagramFollowed !== undefined) setIsInstagramFollowed(data.instagramFollowed);
               if (data.newbieRewardClaimed !== undefined) setNewbieRewardClaimed(data.newbieRewardClaimed);
               if (data.shortId !== undefined) setShortId(data.shortId);
               if (data.mobile !== undefined) setMobile(data.mobile);
+              if (data.todayTeamCommission !== undefined) useAppStore.getState().setTodayTeamCommission(data.todayTeamCommission);
+              if (data.dailyBonusClaimedDate !== undefined) useAppStore.getState().setDailyBonusClaimedDate(data.dailyBonusClaimedDate);
             }
           }, (error) => {
             console.error("Error syncing user data:", error);
@@ -102,7 +138,7 @@ export default function App() {
     };
   }, [
     setIsAdmin, setECoinBalance, setTodayProfit, 
-    setTransactionAmount, setHasBoughtAnyAmount,
+    setTotalBuyAmount, setHasBoughtAnyAmount,
     setIsTelegramJoined, setIsInstagramFollowed,
     setNewbieRewardClaimed, setShortId, setMobile
   ]);
@@ -149,10 +185,13 @@ export default function App() {
                 {activeTab === 'buy' && <Buy />}
                 {activeTab === 'upi' && <UPI />}
                 {activeTab === 'team' && <Team />}
-                {activeTab === 'mine' && <Profile onLogout={() => {
-                  auth.signOut();
-                  useAppStore.getState().resetStore();
-                }} />}
+                {activeTab === 'mine' && <Profile 
+                  onNavigate={(tab) => setActiveTab(tab)}
+                  onLogout={() => {
+                    auth.signOut();
+                    useAppStore.getState().resetStore();
+                  }} 
+                />}
                 {activeTab === 'admin' && isAdmin && (
                   <Admin onBack={() => {
                     window.location.hash = '';

@@ -32,12 +32,15 @@ interface AppState {
   totalApproved: number;
   totalSold: number;
   themeDeducted: number;
-  transactionAmount: number; // For 5K transaction mission
-  setTransactionAmount: (amount: number) => void;
+  totalBuyAmount: number; // For 5K transaction mission
+  setTotalBuyAmount: (amount: number) => void;
   hasBoughtAnyAmount: boolean; // For "Buy Any Amount" task
   setHasBoughtAnyAmount: (bought: boolean) => void;
-  todayProfit: number;
   setTodayProfit: (amount: number) => void;
+  todayTeamCommission: number;
+  setTodayTeamCommission: (amount: number) => void;
+  dailyBonusClaimedDate: string;
+  setDailyBonusClaimedDate: (date: string) => void;
   isTelegramJoined: boolean;
   setIsTelegramJoined: (joined: boolean) => void;
   isInstagramFollowed: boolean;
@@ -87,8 +90,8 @@ export const useAppStore = create<AppState>()(
       totalApproved: 0,
       totalSold: 0,
       themeDeducted: 0,
-      transactionAmount: 0,
-      setTransactionAmount: (transactionAmount) => set({ transactionAmount }),
+      totalBuyAmount: 0,
+      setTotalBuyAmount: (totalBuyAmount) => set({ totalBuyAmount }),
       hasBoughtAnyAmount: false,
       setHasBoughtAnyAmount: (hasBoughtAnyAmount) => set({ hasBoughtAnyAmount }),
       isTelegramJoined: false,
@@ -101,6 +104,10 @@ export const useAppStore = create<AppState>()(
       setShortId: (shortId) => set({ shortId }),
       mobile: '',
       setMobile: (mobile) => set({ mobile }),
+      todayTeamCommission: 0,
+      setTodayTeamCommission: (todayTeamCommission) => set({ todayTeamCommission }),
+      dailyBonusClaimedDate: '',
+      setDailyBonusClaimedDate: (dailyBonusClaimedDate) => set({ dailyBonusClaimedDate }),
       
       addPurchase: (amount) => set((state) => {
         const bonus = amount * 0.045;
@@ -108,7 +115,7 @@ export const useAppStore = create<AppState>()(
           eCoinBalance: state.eCoinBalance + amount + bonus,
           todayProfit: state.todayProfit + bonus,
           totalBought: state.totalBought + amount,
-          transactionAmount: state.transactionAmount + amount,
+          totalBuyAmount: state.totalBuyAmount + amount,
         };
       }),
       
@@ -131,7 +138,7 @@ export const useAppStore = create<AppState>()(
         totalApproved: 0,
         totalSold: 0,
         themeDeducted: 0,
-        transactionAmount: 0,
+        totalBuyAmount: 0,
         isTelegramJoined: false,
         isInstagramFollowed: false,
       }),

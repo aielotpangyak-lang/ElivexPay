@@ -10,6 +10,11 @@
         "role": { "type": "string", "enum": ["user", "admin"], "description": "User role" },
         "mobile": { "type": "string", "description": "User mobile number" },
         "eCoinBalance": { "type": "number", "description": "User e-coin balance" },
+        "todayProfit": { "type": "number", "description": "Today's profit" },
+        "lastProfitDate": { "type": "string", "description": "Last date todayProfit was updated" },
+        "todayTeamCommission": { "type": "number", "description": "Today's team commission" },
+        "dailyBonusClaimedDate": { "type": "string", "description": "Last date daily bonus was claimed" },
+        "referrerId": { "type": "string", "description": "UID of the user who referred this user" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "role", "createdAt"]
@@ -96,7 +101,8 @@
         "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"], "description": "Request status" },
         "createdAt": { "type": "string", "format": "date-time" },
         "orderNo": { "type": "string", "description": "Order number from BuyOrder" },
-        "utr": { "type": "string", "description": "UTR number for payment" }
+        "utr": { "type": "string", "description": "UTR number for payment" },
+        "userUpiId": { "type": "string", "description": "User's paying UPI ID" }
       },
       "required": ["userId", "orderId", "amount", "status", "createdAt"]
     },

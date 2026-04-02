@@ -7,7 +7,7 @@ import {
 import toast from 'react-hot-toast';
 import { 
   collection, getDocs, updateDoc, doc, query, where, orderBy, 
-  getDoc, onSnapshot, Timestamp, increment, addDoc, deleteDoc, setDoc
+  getDoc, onSnapshot, Timestamp, increment, addDoc, deleteDoc, setDoc, runTransaction
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { useAppStore } from '../store';
@@ -266,21 +266,134 @@ export default function Admin({ onBack }: { onBack: () => void }) {
 
       // 3. Process transaction and bonuses (This now handles balance update too)
       try {
-        const response = await fetch('/api/process-transaction', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: request.userId,
-            amount: request.amount,
-          }),
-        });
+        const numAmount = Number(request.amount);
+        const userRef = doc(db, "users", request.userId);
+        
+        await runTransaction(db, async (transaction) => {
+          const userDoc = await transaction.get(userRef);
+          if (!userDoc.exists()) {
+            throw new Error("User not found");
+          }
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to process transaction');
-        }
+          const userData = userDoc.data();
+          const referrerId = userData?.referrerId;
+          const buyerBonus = numAmount * 0.045;
+          const totalTokens = numAmount + buyerBonus;
+          const today = new Date().toISOString().split('T')[0];
+
+          // 1. Update Buyer Stats
+          const lastProfitDate = userData?.lastProfitDate || '';
+          let currentTodayProfit = userData?.todayProfit || 0;
+          
+          if (lastProfitDate !== today) {
+            currentTodayProfit = 0;
+          }
+
+          // 2. 3-Level Referral Bonus Logic
+          const levels = [
+            { rate: 0.005, level: 1 }, // 0.5%
+            { rate: 0.003, level: 2 }, // 0.3%
+            { rate: 0.002, level: 3 }, // 0.2%
+          ];
+
+          let currentReferrerId = referrerId;
+          const referrersToUpdate = [];
+
+          // CRITICAL: In Firestore transactions, all reads must happen before all writes.
+          // We collect all referrer data first.
+          for (let i = 0; i < levels.length; i++) {
+            if (!currentReferrerId) break;
+
+            const referrerRef = doc(db, "users", currentReferrerId);
+            const referrerDoc = await transaction.get(referrerRef);
+
+            if (!referrerDoc.exists()) break;
+
+            const referrerData = referrerDoc.data();
+            referrersToUpdate.push({
+              id: currentReferrerId,
+              ref: referrerRef,
+              data: referrerData,
+              level: levels[i].level,
+              rate: levels[i].rate
+            });
+
+            // Move up the chain for the next read
+            currentReferrerId = referrerData?.referrerId;
+          }
+
+          // Now perform all writes
+          
+          transaction.update(userRef, {
+            eCoinBalance: increment(totalTokens),
+            todayProfit: currentTodayProfit + buyerBonus,
+            lastProfitDate: today,
+            totalBuyAmount: increment(numAmount),
+            hasBoughtAnyAmount: true,
+            newbieBonusCompleted: true
+          });
+
+          // Record buyer transaction
+          const transRef = doc(collection(db, "transactions"));
+          transaction.set(transRef, {
+            userId: request.userId,
+            amount: numAmount,
+            reward: buyerBonus,
+            total: totalTokens,
+            type: 'Buy',
+            status: 'Completed',
+            createdAt: new Date().toISOString(),
+          });
+
+          for (const item of referrersToUpdate) {
+            const { ref, data, level, rate } = item;
+            const commissionAmount = numAmount * rate;
+
+            if (commissionAmount > 0) {
+              let todayComm = data?.todayTeamCommission || 0;
+              let lastCommDate = data?.lastCommissionDate || '';
+
+              // Reset today's commission if it's a new day
+              if (lastCommDate !== today) {
+                todayComm = 0;
+              }
+
+              const newTodayComm = todayComm + commissionAmount;
+
+              transaction.update(ref, {
+                eCoinBalance: increment(commissionAmount),
+                todayTeamCommission: newTodayComm,
+                lastCommissionDate: today,
+              });
+
+              // Record commission in transactions
+              const refTransRef = doc(collection(db, "transactions"));
+              transaction.set(refTransRef, {
+                userId: item.id,
+                amount: commissionAmount,
+                reward: 0,
+                total: commissionAmount,
+                type: 'Referral',
+                reason: `Referral Commission (Level ${level})`,
+                status: 'Completed',
+                createdAt: new Date().toISOString(),
+              });
+
+              // Record detailed commission
+              const commRef = doc(collection(db, "commissions"));
+              transaction.set(commRef, {
+                receiverId: item.id,
+                fromUserId: request.userId,
+                amount: commissionAmount,
+                baseCommission: commissionAmount,
+                bonusAmount: 0,
+                level,
+                purchaseAmount: numAmount,
+                createdAt: new Date().toISOString(),
+              });
+            }
+          }
+        });
         
         console.log('Transaction processed and bonuses distributed');
         toast.success('Buy request approved and balance updated', {
