@@ -43,22 +43,36 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
     setIsLoading(true);
 
     try {
-      // Send WhatsApp OTP
-      const requestOtpFn = httpsCallable(functions, 'requestWhatsAppOtp');
-      await requestOtpFn({ phone: `91${mobileOrAdmin}` });
+      // Send WhatsApp OTP via Express API
+      const response = await fetch('/api/request-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: `91${mobileOrAdmin}` })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(JSON.stringify(data));
+      }
       
       toast.success('OTP sent via WhatsApp!');
       setStep(2);
       setCountdown(60);
     } catch (error: any) {
       console.error('Error requesting OTP:', error);
-      const code = error.code || '';
-      if (code === 'functions/resource-exhausted' || error?.message?.includes('Wait 60 seconds')) {
-        toast.error('Please wait 60 seconds before requesting again.');
-      } else if (code === 'functions/already-exists' || error?.message?.includes('Account already exists')) {
-        toast.error('Account already exists. Please login instead.');
-      } else {
-        toast.error(error.message || 'Failed to send OTP. Please try again.');
+      try {
+        const errData = JSON.parse(error.message);
+        const code = errData.error || '';
+        if (code === 'resource-exhausted' || errData.message?.includes('Wait 60 seconds')) {
+          toast.error('Please wait 60 seconds before requesting again.');
+        } else if (code === 'already-exists' || errData.message?.includes('Account already exists')) {
+          toast.error('Account already exists. Please login instead.');
+        } else {
+          toast.error(errData.message || 'Failed to send OTP. Please try again.');
+        }
+      } catch (e) {
+        toast.error('Failed to send OTP. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -209,31 +223,45 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
       // 1. Verify WhatsApp OTP
       let customToken = '';
       try {
-        const verifyOtpFn = httpsCallable(functions, 'verifyWhatsAppOtp');
-        const result = await verifyOtpFn({ phone: `91${mobileOrAdmin}`, otp });
-        const data = result.data as { success: boolean; token: string };
+        const response = await fetch('/api/verify-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: `91${mobileOrAdmin}`, otp })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(JSON.stringify(data));
+        }
+
         if (data.success && data.token) {
           customToken = data.token;
         } else {
-          throw new Error("Invalid OTP response");
+          throw new Error(JSON.stringify({ message: "Invalid OTP response" }));
         }
       } catch (error: any) {
         console.error('Error verifying OTP:', error);
-        const code = error.code || '';
-        const msg = error.message || '';
-        
-        if (code === 'functions/invalid-argument' || msg.includes('Invalid OTP')) {
-          toast.error('Wrong OTP');
-        } else if (code === 'functions/deadline-exceeded' || msg.includes('expired') || code === 'functions/not-found') {
-          toast.error('OTP Expired. Please request a new one.');
-          setStep(1);
-          setCountdown(0);
-        } else if (code === 'functions/resource-exhausted' || msg.includes('Too many tries')) {
-          toast.error('Too many tries. Please request a new OTP.');
-          setStep(1);
-          setCountdown(0);
-        } else {
-          toast.error(msg || 'OTP Verification failed');
+        try {
+          const errData = JSON.parse(error.message);
+          const code = errData.error || '';
+          const msg = errData.message || '';
+          
+          if (code === 'invalid-argument' || msg.includes('Invalid OTP')) {
+            toast.error('Wrong OTP');
+          } else if (code === 'deadline-exceeded' || msg.includes('expired') || code === 'not-found') {
+            toast.error('OTP Expired. Please request a new one.');
+            setStep(1);
+            setCountdown(0);
+          } else if (code === 'resource-exhausted' || msg.includes('Too many tries')) {
+            toast.error('Too many tries. Please request a new OTP.');
+            setStep(1);
+            setCountdown(0);
+          } else {
+            toast.error(msg || 'OTP Verification failed');
+          }
+        } catch (e) {
+          toast.error('OTP Verification failed');
         }
         setIsLoading(false);
         return;

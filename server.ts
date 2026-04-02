@@ -4,6 +4,7 @@ import path from "path";
 import { initializeApp, getApps, applicationDefault, cert } from "firebase-admin/app";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json" with { type: "json" };
+import otpApi from "./api/index.ts";
 
 // Lazy initialize Firebase Admin
 function getDb() {
@@ -52,6 +53,9 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Mount OTP API
+  app.use(otpApi);
 
   // API routes
   app.post("/api/process-transaction", async (req, res) => {
