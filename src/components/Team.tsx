@@ -368,6 +368,9 @@ const Team = () => {
                 <div className="text-center py-12 text-slate-400 italic">No members found in this level</div>
               ) : (
                 (activeTab === 'L1' ? level1Members : activeTab === 'L2' ? level2Members : level3Members).map((member) => {
+                  // Calculate total commission for this member (excluding the 500 reward)
+                  const memberCommission = (member.totalCommission || 0);
+                  
                   return (
                     <div key={member.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -380,6 +383,10 @@ const Team = () => {
                           </div>
                           <span className="text-xs text-slate-500 font-medium">{member.mobile || 'No mobile'}</span>
                         </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-slate-500 font-medium">Bought: ₹{(member.totalBuyAmount || 0).toFixed(0)}</div>
+                        <div className="text-xs text-emerald-600 font-bold">Comm: ₹{memberCommission.toFixed(2)}</div>
                       </div>
                     </div>
                   );
@@ -520,11 +527,11 @@ const Team = () => {
           <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div className="flex flex-col overflow-hidden pr-4">
               <span className="text-xs text-slate-500 font-medium mb-1">Your Direct Link</span>
-              <span className="text-sm text-slate-800 font-bold truncate">elivexpay.vercel.app/rs/{shortId}</span>
+              <span className="text-sm text-slate-800 font-bold truncate">elivexpay.vercel.app/#/rs/{shortId}</span>
             </div>
             <button 
               onClick={() => {
-                navigator.clipboard.writeText(`elivexpay.vercel.app/rs/${shortId}`);
+                navigator.clipboard.writeText(`elivexpay.vercel.app/#/rs/${shortId}`);
                 toast.success('Invitation link copied!');
               }}
               className="p-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-600 rounded-lg transition-colors flex items-center gap-2 shrink-0"

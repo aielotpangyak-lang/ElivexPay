@@ -1,6 +1,6 @@
 import { Link as LinkIcon, Settings, FileText, AlertTriangle, PlusCircle, CreditCard, ChevronLeft, ChevronRight, CheckCircle2, Circle, Loader2, Building2, AtSign, Send, Coins, IndianRupee } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, increment, getDocs } from 'firebase/firestore';
+import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, increment, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { useAppStore } from '../store';
 import toast from 'react-hot-toast';
@@ -8,24 +8,130 @@ import { handleFirestoreError, OperationType } from '../lib/firestoreErrorHandle
 
 // Mock Data
 const PARTNERS = [
-  { id: 'mobikwik', name: 'Mobikwik', desc: 'MobiKwik is an Indian digital payment platform.', available: true, color: 'bg-indigo-100 text-indigo-600', icon: 'M' },
-  { id: 'phonepe', name: 'PhonePe', desc: 'PhonePe is an Indian digital payment platform.', available: true, color: 'bg-purple-100 text-purple-600', icon: 'Pe' },
-  { id: 'gpay', name: 'GPay', desc: 'Google Pay is a digital wallet platform and online payment system.', available: true, color: 'bg-blue-100 text-blue-600', icon: 'G' },
-  { id: 'freecharge', name: 'Freecharge', desc: 'Freecharge is an Indian digital payment platform.', available: true, color: 'bg-rose-100 text-rose-600', icon: 'Fc' },
+  { 
+    id: 'gpay', 
+    name: 'GPay', 
+    desc: 'Google Pay is a digital wallet platform and online payment system.', 
+    available: true, 
+    color: 'bg-blue-100 text-blue-600', 
+    icon: 'G',
+    handles: ['okaxis', 'okicici', 'okhdfcbank', 'oksbi']
+  },
+  { 
+    id: 'phonepe', 
+    name: 'PhonePe', 
+    desc: 'PhonePe is an Indian digital payment platform.', 
+    available: true, 
+    color: 'bg-purple-100 text-purple-600', 
+    icon: 'Pe',
+    handles: ['ybl', 'ibl', 'axl']
+  },
+  { 
+    id: 'mobikwik', 
+    name: 'Mobikwik', 
+    desc: 'MobiKwik is an Indian digital payment platform.', 
+    available: true, 
+    color: 'bg-indigo-100 text-indigo-600', 
+    icon: 'M',
+    handles: ['ikwik', 'mbkns', 'mbk']
+  },
+  { 
+    id: 'freecharge', 
+    name: 'Freecharge', 
+    desc: 'Freecharge is an Indian digital payment platform.', 
+    available: true, 
+    color: 'bg-rose-100 text-rose-600', 
+    icon: 'Fc',
+    handles: ['freecharge']
+  },
 ];
 
-const UPI_HANDLES = [
-  'okaxis', 'okicici', 'oksbi', 'okhdfcbank', 'paytm', 'apl', 'ybl', 'ibl', 'axl', 'barodampay', 'upi', 'pnb', 'hsbc', 'icici', 'axisbank', 'dlb', 'idbi', 'unionbank', 'kotak'
+const INDIAN_BANKS = [
+  "State Bank of India (SBI)",
+  "HDFC Bank",
+  "ICICI Bank",
+  "Axis Bank",
+  "Kotak Mahindra Bank",
+  "Punjab National Bank (PNB)",
+  "Bank of Baroda",
+  "Canara Bank",
+  "Union Bank of India",
+  "IndusInd Bank",
+  "IDBI Bank",
+  "Yes Bank",
+  "Federal Bank",
+  "IDFC First Bank",
+  "Indian Bank",
+  "UCO Bank",
+  "Bank of India",
+  "Central Bank of India",
+  "Indian Overseas Bank",
+  "Punjab & Sind Bank"
 ];
 
 export default function UPI() {
   const [currentView, setCurrentView] = useState<'main' | 'link'>('main');
   const [activeTab, setActiveTab] = useState<'Buy' | 'Sell'>('Buy');
-  const { eCoinBalance, sellEcoin } = useAppStore();
+  const { 
+    eCoinBalance, sellEcoin, isAutoSellEnabled, setIsAutoSellEnabled, 
+    isBoostEnabled, setIsBoostEnabled, lastAutoSellTime 
+  } = useAppStore();
   
   // Linked Accounts State
   const [buyAccounts, setBuyAccounts] = useState<any[]>([]);
   const [sellAccounts, setSellAccounts] = useState<any[]>([]);
+  const [activeAutoOrder, setActiveAutoOrder] = useState<any>(null);
+  const [countdown, setCountdown] = useState<string>('');
+
+  // Listen for active auto-sell orders
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    const q = query(
+      collection(db, 'sell_requests'),
+      where('userId', '==', auth.currentUser.uid),
+      where('isAutoSell', '==', true),
+      where('status', '==', 'Pending'),
+      orderBy('createdAt', 'desc'),
+      limit(1)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        setActiveAutoOrder({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
+      } else {
+        setActiveAutoOrder(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [auth.currentUser]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!activeAutoOrder) {
+      setCountdown('');
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const createdAt = new Date(activeAutoOrder.createdAt);
+      const now = new Date();
+      const elapsed = now.getTime() - createdAt.getTime();
+      const remaining = Math.max(0, (5 * 60 * 1000) - elapsed);
+
+      if (remaining === 0) {
+        setCountdown('Processing...');
+        clearInterval(interval);
+      } else {
+        const mins = Math.floor(remaining / 60000);
+        const secs = Math.floor((remaining % 60000) / 1000);
+        setCountdown(`${mins}:${secs.toString().padStart(2, '0')}`);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeAutoOrder]);
 
   // Sell Form State
   const [sellAmount, setSellAmount] = useState('');
@@ -39,11 +145,12 @@ export default function UPI() {
   const [showPartnerModal, setShowPartnerModal] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<any>(null);
   const [buyName, setBuyName] = useState('');
-  const [buyUpiId, setBuyUpiId] = useState('');
+  const [buyUpiUsername, setBuyUpiUsername] = useState('');
+  const [selectedHandle, setSelectedHandle] = useState('');
   const [buyMobile, setBuyMobile] = useState('');
+  const [isLinkingBuy, setIsLinkingBuy] = useState(false);
   const [showUpiSuggestions, setShowUpiSuggestions] = useState(false);
   const [filteredHandles, setFilteredHandles] = useState<string[]>([]);
-  const [isLinkingBuy, setIsLinkingBuy] = useState(false);
 
   // Sell Link Form State
   const [sellMethod, setSellMethod] = useState<'UPI' | 'Bank'>('UPI');
@@ -51,6 +158,7 @@ export default function UPI() {
   const [bankAccNo, setBankAccNo] = useState('');
   const [bankIfsc, setBankIfsc] = useState('');
   const [bankName, setBankName] = useState('');
+  const [bankHolderName, setBankHolderName] = useState('');
   const [isLinkingSell, setIsLinkingSell] = useState(false);
 
   useEffect(() => {
@@ -76,36 +184,29 @@ export default function UPI() {
         setSelectedSellAccount(sellAccs[0].id);
       }
     }, (error) => {
-      if (auth.currentUser) {
-        console.error("Error fetching UPI accounts:", error);
-      }
+      handleFirestoreError(error, OperationType.LIST, 'upi_accounts');
     });
 
     return () => unsubscribe();
   }, [auth.currentUser]);
 
   const handleUpiIdChange = (value: string) => {
-    setBuyUpiId(value);
-    if (value.includes('@')) {
-      const parts = value.split('@');
-      const handlePart = parts[1].toLowerCase();
-      const filtered = UPI_HANDLES.filter(h => h.startsWith(handlePart));
-      setFilteredHandles(filtered);
-      setShowUpiSuggestions(filtered.length > 0);
-    } else {
-      setShowUpiSuggestions(false);
+    setBuyUpiUsername(value);
+    if (selectedPartner) {
+      const handles = selectedPartner.handles || [];
+      setFilteredHandles(handles);
+      setShowUpiSuggestions(true);
     }
   };
 
   const selectHandle = (handle: string) => {
-    const parts = buyUpiId.split('@');
-    setBuyUpiId(`${parts[0]}@${handle}`);
+    setSelectedHandle(handle);
     setShowUpiSuggestions(false);
   };
 
   const handleSellSubmit = async () => {
-    if (!sellAmount || isNaN(Number(sellAmount)) || Number(sellAmount) <= 0) {
-      toast.error('Please enter a valid amount');
+    if (!sellAmount || isNaN(Number(sellAmount)) || Number(sellAmount) < 500) {
+      toast.error('Minimum withdrawal amount is ₹500');
       return;
     }
     if (Number(sellAmount) > eCoinBalance) {
@@ -148,15 +249,24 @@ export default function UPI() {
   };
 
   const handleLinkBuy = async () => {
-    if (!selectedPartner || !buyName || !buyUpiId || !buyMobile || !auth.currentUser) return;
+    const buyUpiId = `${buyUpiUsername}@${selectedHandle}`;
+    if (!selectedPartner || !buyName || !buyUpiUsername || !selectedHandle || !buyMobile || !auth.currentUser) return;
     
     // Validation
     if (!/^[a-zA-Z\s]+$/.test(buyName)) {
       toast.error('Name can only contain alphabets');
       return;
     }
-    if (!buyUpiId.includes('@')) {
-      toast.error('Invalid UPI ID format (username@bank)');
+    if (!buyUpiUsername) {
+      toast.error('Please enter your UPI username');
+      return;
+    }
+    if (!/^[a-zA-Z0-9-]+$/.test(buyUpiUsername)) {
+      toast.error('UPI username can only contain alphanumeric characters and hyphens');
+      return;
+    }
+    if (buyUpiUsername.includes('@')) {
+      toast.error('Only enter the part before the @ symbol');
       return;
     }
     if (!/^\d{10}$/.test(buyMobile)) {
@@ -166,6 +276,7 @@ export default function UPI() {
 
     setIsLinkingBuy(true);
     
+    const fullUpiId = `${buyUpiUsername}@${selectedHandle}`;
     try {
       // Check if user already has 3 Buy accounts
       if (linkType === 'Buy' && buyAccounts.length >= 3) {
@@ -183,7 +294,7 @@ export default function UPI() {
         return;
       }
 
-      const qUpi = query(collection(db, 'upi_accounts'), where('userId', '==', auth.currentUser.uid), where('upiId', '==', buyUpiId));
+      const qUpi = query(collection(db, 'upi_accounts'), where('userId', '==', auth.currentUser.uid), where('upiId', '==', fullUpiId));
       const upiSnap = await getDocs(qUpi);
       if (!upiSnap.empty) {
         toast.error('You have already registered this UPI ID');
@@ -197,7 +308,7 @@ export default function UPI() {
         partnerId: selectedPartner.id,
         partnerName: selectedPartner.name,
         name: buyName,
-        upiId: buyUpiId,
+        upiId: fullUpiId,
         phone: buyMobile,
         status: 'Active',
         createdAt: new Date().toISOString()
@@ -213,7 +324,8 @@ export default function UPI() {
       // Reset form
       setSelectedPartner(null);
       setBuyName('');
-      setBuyUpiId('');
+      setBuyUpiUsername('');
+      setSelectedHandle('');
       setBuyMobile('');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'upi_accounts');
@@ -244,6 +356,7 @@ export default function UPI() {
         accountData.bankAccNo = bankAccNo;
         accountData.bankIfsc = bankIfsc;
         accountData.bankName = bankName;
+        accountData.name = bankHolderName; // Use holder name for display
       }
 
       await addDoc(collection(db, 'upi_accounts'), accountData);
@@ -256,6 +369,7 @@ export default function UPI() {
       setBankAccNo('');
       setBankIfsc('');
       setBankName('');
+      setBankHolderName('');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'upi_accounts');
     } finally {
@@ -349,30 +463,33 @@ export default function UPI() {
               />
             </div>
 
-            <div className="relative border-b border-slate-100">
-              <div className="flex items-center p-4">
+            <div className="p-4 border-b border-slate-100">
+              <div className="flex items-center">
                 <span className="text-slate-600 font-medium w-24">UPI ID</span>
-                <input 
-                  type="text" 
-                  placeholder="username@bank" 
-                  value={buyUpiId}
-                  onChange={(e) => handleUpiIdChange(e.target.value)}
-                  className="flex-1 outline-none text-slate-900 font-medium placeholder:text-slate-300 placeholder:font-normal bg-transparent"
-                />
-              </div>
-              {showUpiSuggestions && (
-                <div className="absolute left-24 right-4 top-full bg-white border border-slate-200 rounded-xl shadow-xl z-20 max-h-40 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
-                  {filteredHandles.map(handle => (
-                    <button 
-                      key={handle}
-                      onClick={() => selectHandle(handle)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-slate-50 text-sm font-bold text-slate-700 border-b border-slate-50 last:border-0"
-                    >
-                      @{handle}
-                    </button>
-                  ))}
+                <div className="flex-1 flex items-center gap-1">
+                  <input 
+                    type="text" 
+                    placeholder="username" 
+                    value={buyUpiUsername}
+                    onChange={(e) => setBuyUpiUsername(e.target.value)}
+                    className="flex-1 outline-none text-slate-900 font-medium placeholder:text-slate-300 placeholder:font-normal bg-transparent"
+                  />
+                  <span className="text-slate-400 font-bold">@</span>
+                  <select 
+                    value={selectedHandle}
+                    onChange={(e) => setSelectedHandle(e.target.value)}
+                    className="bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="" disabled>Select</option>
+                    {selectedPartner?.handles?.map((h: string) => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
                 </div>
-              )}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-2 font-medium">
+                Note: Only enter the part of the UPI ID <span className="text-indigo-500 font-bold">before</span> the "@" symbol. Special characters are not allowed, except for a hyphen (-).
+              </p>
             </div>
 
             <div className="flex items-center p-4">
@@ -392,7 +509,7 @@ export default function UPI() {
             <div className="p-4 mt-4">
               <button 
                 onClick={handleLinkBuy}
-                disabled={!selectedPartner || !buyName || !buyUpiId || !buyMobile || isLinkingBuy}
+                disabled={!selectedPartner || !buyName || !buyUpiUsername || !selectedHandle || !buyMobile || isLinkingBuy}
                 className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white py-3.5 rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
               >
                 {isLinkingBuy ? (
@@ -450,12 +567,25 @@ export default function UPI() {
               ) : (
                 <div className="p-4 space-y-4">
                   <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Bank Name</label>
+                    <select 
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      className="w-full outline-none text-slate-900 font-medium py-2 border-b border-slate-200 focus:border-indigo-600 transition-colors bg-transparent"
+                    >
+                      <option value="" disabled>Select Bank</option>
+                      {INDIAN_BANKS.map(bank => (
+                        <option key={bank} value={bank}>{bank}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Account Holder Name</label>
                     <input 
                       type="text" 
                       placeholder="Enter full name" 
-                      value={bankName}
-                      onChange={(e) => setBankName(e.target.value)}
+                      value={bankHolderName}
+                      onChange={(e) => setBankHolderName(e.target.value)}
                       className="w-full outline-none text-slate-900 font-medium placeholder:text-slate-300 py-2 border-b border-slate-200 focus:border-indigo-600 transition-colors bg-transparent"
                     />
                   </div>
@@ -484,9 +614,9 @@ export default function UPI() {
 
               <div className="p-4 mt-2">
                 <button 
-                  onClick={handleLinkSell}
-                  disabled={isLinkingSell || (sellMethod === 'UPI' ? !sellUpiId : (!bankAccNo || !bankIfsc || !bankName))}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white py-3.5 rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
+                onClick={handleLinkSell}
+                disabled={isLinkingSell || (sellMethod === 'UPI' ? !sellUpiId : (!bankAccNo || !bankIfsc || !bankName || !bankHolderName))}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white py-3.5 rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
                 >
                   {isLinkingSell ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Save Details'}
                 </button>
@@ -513,6 +643,7 @@ export default function UPI() {
                     onClick={() => {
                       if (partner.available) {
                         setSelectedPartner(partner);
+                        setSelectedHandle(partner.handles[0]); // Default to first handle
                         setShowPartnerModal(false);
                       }
                     }}
@@ -606,6 +737,88 @@ export default function UPI() {
       {/* Sell Form (Only in Sell Tab) */}
       {activeTab === 'Sell' && (
         <div className="bg-white mx-4 mb-6 rounded-b-xl p-5 shadow-sm border border-t-0 border-slate-100">
+          {/* Auto Selling Section */}
+          <div className="mb-8 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+                  <Settings className="w-5 h-5 text-white animate-spin-slow" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Auto Selling</h3>
+                  <p className="text-[10px] text-slate-500 font-medium">Automatic sell every 10 mins</p>
+                </div>
+              </div>
+              <button 
+                onClick={async () => {
+                  if (!auth.currentUser) return;
+                  const newStatus = !isAutoSellEnabled;
+                  try {
+                    await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                      isAutoSellEnabled: newStatus
+                    });
+                    setIsAutoSellEnabled(newStatus);
+                    toast.success(`Auto-selling turned ${newStatus ? 'ON' : 'OFF'}`);
+                  } catch (e) {
+                    toast.error('Failed to update settings');
+                  }
+                }}
+                className={`w-12 h-6 rounded-full transition-colors relative ${isAutoSellEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+              >
+                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isAutoSellEnabled ? 'left-7' : 'left-1'}`}></div>
+              </button>
+            </div>
+
+            {isAutoSellEnabled && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-indigo-50">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
+                    <span className="text-xs font-bold text-slate-700">Status</span>
+                  </div>
+                  <span className="text-xs font-bold text-indigo-600">{activeAutoOrder ? 'Order Active' : 'Waiting for next cycle'}</span>
+                </div>
+
+                {activeAutoOrder && (
+                  <div className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-indigo-50">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 text-indigo-600 animate-spin" />
+                      <span className="text-xs font-bold text-slate-700">Completion in</span>
+                    </div>
+                    <span className="text-xs font-bold text-indigo-600 font-mono">{countdown}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-indigo-50">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-700">Boost Selling</span>
+                  </div>
+                  <button 
+                    onClick={async () => {
+                      if (!auth.currentUser) return;
+                      const newStatus = !isBoostEnabled;
+                      try {
+                        await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                          isBoostEnabled: newStatus
+                        });
+                        setIsBoostEnabled(newStatus);
+                        toast.success(`Boost selling ${newStatus ? 'enabled' : 'disabled'}`);
+                      } catch (e) {
+                        toast.error('Failed to update settings');
+                      }
+                    }}
+                    className={`text-[10px] font-bold px-3 py-1 rounded-full transition-colors ${
+                      isBoostEnabled ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {isBoostEnabled ? 'Enabled' : 'Enable'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-between mb-6">
             <span className="text-slate-600 font-bold">Available Balance</span>
             <div className="flex items-center gap-1.5 font-bold text-slate-900">

@@ -21,11 +21,11 @@ export default function BottomNav({ activeTab, setActiveTab }: BottomNavProps) {
       {navItems.map((item) => {
         const isActive = activeTab === item.id;
         return (
-          <button
+            <button
             key={item.id}
             onClick={() => setActiveTab(item.id as Tab)}
             className={`flex flex-col items-center justify-center w-14 h-14 transition-all duration-200 ${
-              isActive ? 'text-indigo-600 scale-110' : 'text-slate-400 hover:text-slate-600'
+              isActive ? 'text-blue-700 scale-110' : 'text-slate-400 hover:text-slate-600'
             }`}
           >
             <div className={`mb-1 transition-transform duration-200 ${isActive ? '-translate-y-1' : ''}`}>

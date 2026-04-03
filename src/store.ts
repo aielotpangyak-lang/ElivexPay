@@ -22,6 +22,8 @@ interface AppState {
   setCareIds: (ids: string[]) => void;
   newbieRewardAmount: number;
   setNewbieRewardAmount: (amount: number) => void;
+  newsUpdateDate: string;
+  setNewsUpdateDate: (date: string) => void;
   
   // User balances (everything 0 today)
   eCoinBalance: number;
@@ -36,6 +38,10 @@ interface AppState {
   setTotalBuyAmount: (amount: number) => void;
   hasBoughtAnyAmount: boolean; // For "Buy Any Amount" task
   setHasBoughtAnyAmount: (bought: boolean) => void;
+  isUpiLinked: boolean;
+  setIsUpiLinked: (linked: boolean) => void;
+  isTutorialWatched: boolean;
+  setIsTutorialWatched: (watched: boolean) => void;
   setTodayProfit: (amount: number) => void;
   todayTeamCommission: number;
   setTodayTeamCommission: (amount: number) => void;
@@ -45,12 +51,24 @@ interface AppState {
   setIsTelegramJoined: (joined: boolean) => void;
   isInstagramFollowed: boolean;
   setIsInstagramFollowed: (followed: boolean) => void;
+  isVipJoined: boolean;
+  setIsVipJoined: (joined: boolean) => void;
+  isScreenshotSubmitted: boolean;
+  setIsScreenshotSubmitted: (submitted: boolean) => void;
+  isAutoSellEnabled: boolean;
+  setIsAutoSellEnabled: (enabled: boolean) => void;
+  isBoostEnabled: boolean;
+  setIsBoostEnabled: (enabled: boolean) => void;
+  lastAutoSellTime: string;
+  setLastAutoSellTime: (time: string) => void;
   newbieRewardClaimed: boolean;
   setNewbieRewardClaimed: (claimed: boolean) => void;
   shortId: string;
   setShortId: (id: string) => void;
   mobile: string;
   setMobile: (mobile: string) => void;
+  activeAutoOrder: any | null;
+  setActiveAutoOrder: (order: any | null) => void;
   addPurchase: (amount: number) => void;
   sellEcoin: (amount: number) => void;
   refundEcoin: (amount: number) => void;
@@ -78,8 +96,10 @@ export const useAppStore = create<AppState>()(
       setBanners: (banners) => set({ banners }),
       careIds: ['@elivexpaycsr1', '@elivexpaycsr2', '@elivexpaycsr3'],
       setCareIds: (careIds) => set({ careIds }),
-      newbieRewardAmount: 700,
+      newbieRewardAmount: 200,
       setNewbieRewardAmount: (newbieRewardAmount) => set({ newbieRewardAmount }),
+      newsUpdateDate: new Date().toLocaleDateString(),
+      setNewsUpdateDate: (newsUpdateDate) => set({ newsUpdateDate }),
       
       eCoinBalance: 0,
       setECoinBalance: (eCoinBalance) => set({ eCoinBalance }),
@@ -94,16 +114,32 @@ export const useAppStore = create<AppState>()(
       setTotalBuyAmount: (totalBuyAmount) => set({ totalBuyAmount }),
       hasBoughtAnyAmount: false,
       setHasBoughtAnyAmount: (hasBoughtAnyAmount) => set({ hasBoughtAnyAmount }),
+      isUpiLinked: false,
+      setIsUpiLinked: (isUpiLinked) => set({ isUpiLinked }),
+      isTutorialWatched: false,
+      setIsTutorialWatched: (isTutorialWatched) => set({ isTutorialWatched }),
       isTelegramJoined: false,
       setIsTelegramJoined: (isTelegramJoined) => set({ isTelegramJoined }),
       isInstagramFollowed: false,
       setIsInstagramFollowed: (isInstagramFollowed) => set({ isInstagramFollowed }),
+      isVipJoined: false,
+      setIsVipJoined: (isVipJoined) => set({ isVipJoined }),
+      isScreenshotSubmitted: false,
+      setIsScreenshotSubmitted: (isScreenshotSubmitted) => set({ isScreenshotSubmitted }),
+      isAutoSellEnabled: false,
+      setIsAutoSellEnabled: (isAutoSellEnabled) => set({ isAutoSellEnabled }),
+      isBoostEnabled: false,
+      setIsBoostEnabled: (isBoostEnabled) => set({ isBoostEnabled }),
+      lastAutoSellTime: '',
+      setLastAutoSellTime: (lastAutoSellTime) => set({ lastAutoSellTime }),
       newbieRewardClaimed: false,
       setNewbieRewardClaimed: (newbieRewardClaimed) => set({ newbieRewardClaimed }),
       shortId: '',
       setShortId: (shortId) => set({ shortId }),
       mobile: '',
       setMobile: (mobile) => set({ mobile }),
+      activeAutoOrder: null,
+      setActiveAutoOrder: (activeAutoOrder) => set({ activeAutoOrder }),
       todayTeamCommission: 0,
       setTodayTeamCommission: (todayTeamCommission) => set({ todayTeamCommission }),
       dailyBonusClaimedDate: '',
@@ -141,6 +177,7 @@ export const useAppStore = create<AppState>()(
         totalBuyAmount: 0,
         isTelegramJoined: false,
         isInstagramFollowed: false,
+        isVipJoined: false,
       }),
     }),
     {

@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, getDocFromServer, onSnapshot } from 'firebase/firestore';
 import { auth, db } from './firebase';
+import { motion } from 'motion/react';
 console.log("App initialized with auth:", !!auth, "and db:", !!db);
 import ErrorBoundary from './components/ErrorBoundary';
 import Auth from './components/Auth';
@@ -14,6 +15,7 @@ import Team from './components/Team';
 import Profile from './components/Profile';
 import BottomNav from './components/BottomNav';
 import Admin from './components/Admin';
+import AutoSellManager from './components/AutoSellManager';
 import { useAppStore } from './store';
 
 type Tab = 'home' | 'buy' | 'upi' | 'team' | 'mine' | 'admin';
@@ -25,7 +27,7 @@ export default function App() {
     setTutorialVideos, setBanners, setCareIds, setNewbieRewardAmount,
     setTodayProfit, setTotalBuyAmount, setHasBoughtAnyAmount,
     setIsTelegramJoined, setIsInstagramFollowed, setNewbieRewardClaimed,
-    setShortId, setMobile
+    setShortId, setMobile, setIsAutoSellEnabled, setIsBoostEnabled, setLastAutoSellTime
   } = useAppStore();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -114,6 +116,9 @@ export default function App() {
               if (data.newbieRewardClaimed !== undefined) setNewbieRewardClaimed(data.newbieRewardClaimed);
               if (data.shortId !== undefined) setShortId(data.shortId);
               if (data.mobile !== undefined) setMobile(data.mobile);
+              if (data.isAutoSellEnabled !== undefined) setIsAutoSellEnabled(data.isAutoSellEnabled);
+              if (data.isBoostEnabled !== undefined) setIsBoostEnabled(data.isBoostEnabled);
+              if (data.lastAutoSellTime !== undefined) setLastAutoSellTime(data.lastAutoSellTime);
               if (data.todayTeamCommission !== undefined) useAppStore.getState().setTodayTeamCommission(data.todayTeamCommission);
               if (data.dailyBonusClaimedDate !== undefined) useAppStore.getState().setDailyBonusClaimedDate(data.dailyBonusClaimedDate);
             }
@@ -172,15 +177,16 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="bg-black min-h-screen flex justify-center items-center font-sans text-slate-800">
+      <div className="bg-slate-200 min-h-screen flex justify-center items-center font-sans text-slate-800">
         <Toaster position="top-center" />
         {/* Mobile App Container */}
-        <div className="w-full max-w-md h-[100dvh] bg-slate-50 relative flex flex-col overflow-hidden shadow-2xl sm:rounded-[2.5rem] sm:h-[90vh] sm:border-[8px] sm:border-slate-900">
+        <div className="w-full max-w-md h-[100dvh] bg-white relative flex flex-col overflow-hidden shadow-xl sm:rounded-3xl sm:h-[90vh] sm:border border-slate-300">
           
           {!isLoggedIn ? (
             <Auth onLogin={() => setIsLoggedIn(true)} />
           ) : (
             <>
+              <AutoSellManager />
               <div className="flex-1 overflow-y-auto scroll-smooth bg-slate-50">
                 {activeTab === 'home' && <Home onNavigate={(tab) => setActiveTab(tab)} />}
                 {activeTab === 'buy' && <Buy />}
@@ -203,12 +209,15 @@ export default function App() {
               
               {/* Floating Support Button - Hide on admin page */}
               {activeTab !== 'admin' && (
-                <button 
+                <motion.button 
+                  drag
+                  dragConstraints={{ left: -300, right: 0, top: -600, bottom: 0 }}
+                  whileDrag={{ scale: 1.1 }}
                   onClick={() => window.open(useAppStore.getState().telegramLink, '_blank')}
-                  className="absolute bottom-20 right-4 w-12 h-12 bg-indigo-50 rounded-full shadow-lg flex items-center justify-center border-2 border-indigo-200 z-40 hover:bg-indigo-100 transition-colors"
+                  className="absolute bottom-20 right-4 w-12 h-12 bg-blue-50 rounded-full shadow-md flex items-center justify-center border border-blue-100 z-40 hover:bg-blue-100 transition-colors"
                 >
-                  <HeadphonesIcon className="w-6 h-6 text-indigo-600" />
-                </button>
+                  <HeadphonesIcon className="w-6 h-6 text-blue-700" />
+                </motion.button>
               )}
 
               {/* Hide bottom nav on admin page */}

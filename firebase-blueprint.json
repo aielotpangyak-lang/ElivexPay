@@ -15,6 +15,13 @@
         "todayTeamCommission": { "type": "number", "description": "Today's team commission" },
         "dailyBonusClaimedDate": { "type": "string", "description": "Last date daily bonus was claimed" },
         "referrerId": { "type": "string", "description": "UID of the user who referred this user" },
+        "isTelegramJoined": { "type": "boolean", "description": "Whether user joined Telegram" },
+        "isVipJoined": { "type": "boolean", "description": "Whether user joined VIP group" },
+        "isUpiLinked": { "type": "boolean", "description": "Whether user linked a Buy UPI" },
+        "isScreenshotSubmitted": { "type": "boolean", "description": "Whether user submitted VIP screenshot" },
+        "isAutoSellEnabled": { "type": "boolean", "description": "Whether auto-selling is enabled" },
+        "isBoostEnabled": { "type": "boolean", "description": "Whether boost-selling is enabled" },
+        "lastAutoSellTime": { "type": "string", "description": "Last time an auto-sell order was generated" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "role", "createdAt"]

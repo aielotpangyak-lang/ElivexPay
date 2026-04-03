@@ -23,7 +23,8 @@ service cloud.firestore {
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
           (request.auth.token.email == "aielotpangyak@gmail.com" && request.auth.token.email_verified == true) ||
-          (request.auth.token.email == "admin@elivex.com")
+          (request.auth.token.email == "admin@elivex.com") ||
+          (request.auth.token.email == "aielotpangyak@gmail.com")
         );
     }
     
@@ -54,7 +55,9 @@ service cloud.firestore {
           'newbieRewardClaimed', 'dailyBonusClaimedAt', 'claimedNewbieRewards',
           'todayProfit', 'lastProfitDate', 'transactionAmount', 'hasBoughtAnyAmount',
           'todayTeamCommission', 'lastCommissionDate', 'dailyBonusClaimedDate',
-          'telegramJoined', 'instagramFollowed', 'totalBuyAmount'
+          'telegramJoined', 'instagramFollowed', 'totalBuyAmount',
+          'isVipJoined', 'isUpiLinked', 'isScreenshotSubmitted',
+          'isAutoSellEnabled', 'isBoostEnabled', 'lastAutoSellTime'
         ];
         return hasOnlyAllowedFields(allowedFields) &&
                (!('uid' in data) || (data.uid is string && data.uid.size() < 128)) &&
@@ -79,7 +82,13 @@ service cloud.firestore {
                (!('dailyBonusClaimedDate' in data) || (data.dailyBonusClaimedDate is string && data.dailyBonusClaimedDate.size() < 64)) &&
                (!('telegramJoined' in data) || data.telegramJoined is bool) &&
                (!('instagramFollowed' in data) || data.instagramFollowed is bool) &&
-               (!('totalBuyAmount' in data) || data.totalBuyAmount is number);
+               (!('totalBuyAmount' in data) || data.totalBuyAmount is number) &&
+               (!('isVipJoined' in data) || data.isVipJoined is bool) &&
+               (!('isUpiLinked' in data) || data.isUpiLinked is bool) &&
+               (!('isScreenshotSubmitted' in data) || data.isScreenshotSubmitted is bool) &&
+               (!('isAutoSellEnabled' in data) || data.isAutoSellEnabled is bool) &&
+               (!('isBoostEnabled' in data) || data.isBoostEnabled is bool) &&
+               (!('lastAutoSellTime' in data) || (data.lastAutoSellTime is string && data.lastAutoSellTime.size() < 64));
       }
       
       allow get: if true; // Allow looking up referrers by UID
@@ -87,7 +96,7 @@ service cloud.firestore {
       allow create: if isAuthenticated() && (isOwner(userId) || isAdmin()) && (isAdmin() || (isValidUser() && request.resource.data.role == 'user'));
       allow update: if isAuthenticated() && (isAdmin() || (isValidUser() && (
         isOwner(userId) && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shortId', 'todayProfit', 'lastProfitDate', 'todayTeamCommission', 'lastCommissionDate', 'telegramJoined', 'instagramFollowed', 'newbieRewardClaimed', 'dailyBonusClaimedAt', 'claimedNewbieRewards', 'dailyBonusClaimedDate', 'eCoinBalance', 'totalEarnings', 'todayEarnings', 'transactionAmount', 'hasBoughtAnyAmount'])
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shortId', 'todayProfit', 'lastProfitDate', 'todayTeamCommission', 'lastCommissionDate', 'telegramJoined', 'instagramFollowed', 'newbieRewardClaimed', 'dailyBonusClaimedAt', 'claimedNewbieRewards', 'dailyBonusClaimedDate', 'eCoinBalance', 'totalEarnings', 'todayEarnings', 'transactionAmount', 'hasBoughtAnyAmount', 'isVipJoined', 'isUpiLinked', 'isScreenshotSubmitted', 'totalBuyAmount', 'newbieBonusCompleted', 'isAutoSellEnabled', 'isBoostEnabled', 'lastAutoSellTime'])
         ) || 
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shortId']) && (!('shortId' in resource.data) || resource.data.shortId == null))
       )));
@@ -164,12 +173,19 @@ service cloud.firestore {
                data.accountId is string &&
                data.accountDetails is map &&
                data.status in ['Pending', 'Approved', 'Rejected'] &&
-               data.createdAt is string;
+               data.createdAt is string &&
+               (!('isAutoSell' in data) || data.isAutoSell is bool) &&
+               (!('completedAt' in data) || data.completedAt is string);
       }
 
       allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
       allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId && isValidSellRequest();
-      allow update: if isAdmin(); // Only admins can approve/reject
+      allow update: if isAdmin() || (
+        isAuthenticated() && isDocOwner() && 
+        request.resource.data.status in ['Approved', 'Rejected'] && 
+        resource.data.status == 'Pending' && 
+        resource.data.isAutoSell == true
+      );
     }
 
     match /buy_orders/{orderId} {
@@ -180,7 +196,7 @@ service cloud.firestore {
                data.reward is number &&
                data.itoken is number &&
                data.type in ['UPI', 'Bank'] &&
-               data.status in ['Available', 'Sold', 'Processing'] &&
+               data.status in ['Available', 'Sold', 'Processing', 'Pending Info'] &&
                data.createdAt is string;
       }
 
@@ -212,6 +228,15 @@ service cloud.firestore {
     match /transactions/{transactionId} {
       allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
       allow write: if isAdmin(); // Only admin can write (usually via backend)
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create: if isAdmin();
+      allow update: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin()) && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
     }
   }
 }

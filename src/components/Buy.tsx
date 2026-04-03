@@ -30,7 +30,7 @@ export default function Buy() {
   const [orders, setOrders] = useState<BuyOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<BuyOrder | null>(null);
-  const [transactionStep, setTransactionStep] = useState<'info' | 'select_upi' | 'proceed' | 'confirm' | 'utr'>('info');
+  const [transactionStep, setTransactionStep] = useState<'info' | 'select_upi' | 'proceed' | 'confirm' | 'utr' | 'success'>('info');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedUserUpiId, setSelectedUserUpiId] = useState<string>('');
   const [utrNumber, setUtrNumber] = useState('');
@@ -47,6 +47,8 @@ export default function Buy() {
       if (accs.length > 0 && !selectedUserUpiId) {
         setSelectedUserUpiId((accs[0] as any).upiId);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'upi_accounts');
     });
     return () => unsubscribe();
   }, [auth.currentUser]);
@@ -140,9 +142,8 @@ export default function Buy() {
         duration: 5000,
         icon: <CheckCircle2 className="w-5 h-5 text-emerald-600" />
       });
-      setSelectedOrder(null);
-      setTransactionStep('info');
-      setSelectedUserUpiId('');
+      
+      setTransactionStep('success');
       setUtrNumber('');
       setUserAmount('');
     } catch (error) {
@@ -336,7 +337,8 @@ export default function Buy() {
               <X className="w-6 h-6 text-slate-500" />
             </button>
             <h2 className="font-bold text-slate-900 text-lg">
-              {transactionStep === 'info' ? 'UPI and Pay' : 'Payment Details'}
+              {transactionStep === 'info' ? 'UPI and Pay' : 
+               transactionStep === 'success' ? 'Order Success' : 'Payment Details'}
             </h2>
           </div>
 
@@ -467,6 +469,69 @@ export default function Buy() {
                     Back
                   </button>
                 </div>
+              </div>
+            ) : transactionStep === 'success' ? (
+              <div className="space-y-8 py-4 animate-in zoom-in-95 duration-500">
+                <div className="text-center">
+                  <div className="w-24 h-24 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-6 relative">
+                    <div className="absolute inset-0 bg-emerald-100 rounded-full animate-ping opacity-20"></div>
+                    <CheckCircle2 className="w-12 h-12 text-emerald-500 relative z-10" />
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 mb-2">Request Submitted!</h3>
+                  <p className="text-slate-500 text-sm font-medium max-w-[240px] mx-auto">
+                    Your payment request has been sent for verification.
+                  </p>
+                </div>
+
+                <div className="bg-white rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+                  <div className="bg-indigo-600 p-6 text-white text-center">
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 block mb-1">Tokens to Receive</span>
+                    <div className="flex items-center justify-center gap-2">
+                      <Coins className="w-6 h-6 text-indigo-200" />
+                      <span className="text-4xl font-black tracking-tighter">{selectedOrder.itoken}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="p-6 space-y-4">
+                    <div className="flex justify-between items-center py-3 border-b border-slate-50">
+                      <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Amount Paid</span>
+                      <span className="text-slate-900 font-black text-lg">₹{selectedOrder.price}</span>
+                    </div>
+                    
+                    <div className="flex justify-between items-center py-3 border-b border-slate-50">
+                      <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Reward Earned</span>
+                      <div className="flex items-center gap-1.5">
+                        <div className="bg-emerald-100 text-emerald-600 p-1 rounded-md">
+                          <ArrowUpDown className="w-3 h-3 rotate-180" />
+                        </div>
+                        <span className="text-emerald-600 font-black text-lg">₹{selectedOrder.reward}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center py-3">
+                      <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Order ID</span>
+                      <span className="text-slate-600 font-bold text-xs font-mono">{selectedOrder.orderNo}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-amber-50 p-5 rounded-3xl border border-amber-100 flex gap-3">
+                  <Info className="w-5 h-5 text-amber-600 shrink-0" />
+                  <p className="text-[10px] font-bold text-amber-800 leading-relaxed">
+                    Verification usually takes 5-30 minutes. You will be notified once your balance is updated.
+                  </p>
+                </div>
+
+                <button 
+                  onClick={() => {
+                    setSelectedOrder(null);
+                    setTransactionStep('info');
+                    setSelectedUserUpiId('');
+                  }}
+                  className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black text-lg shadow-xl shadow-slate-200 active:scale-95 transition-all"
+                >
+                  Done
+                </button>
               </div>
             ) : (
               <div className="space-y-6">

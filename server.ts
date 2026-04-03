@@ -73,7 +73,7 @@ async function startServer() {
 
     try {
       const db = getDb();
-      console.log(`Using DB for transaction: ${db.projectId} / ${db.databaseId}`);
+      console.log(`Using DB for transaction: ${db.databaseId}`);
       const userRef = db.collection("users").doc(userId);
       
       await db.runTransaction(async (transaction) => {
