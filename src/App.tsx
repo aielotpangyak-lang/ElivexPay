@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { HeadphonesIcon } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
+import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, getDocFromServer, onSnapshot } from 'firebase/firestore';
 import { auth, db } from './firebase';
@@ -35,25 +36,50 @@ export default function App() {
   const [isSplashVisible, setIsSplashVisible] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('home');
 
+  return (
+    <Router>
+      <AppContent 
+        isSplashVisible={isSplashVisible}
+        setIsSplashVisible={setIsSplashVisible}
+        isLoggedIn={isLoggedIn}
+        setIsLoggedIn={setIsLoggedIn}
+        isAuthReady={isAuthReady}
+        setIsAuthReady={setIsAuthReady}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isAdmin={isAdmin}
+        setIsAdmin={setIsAdmin}
+      />
+    </Router>
+  );
+}
+
+function AppContent({ 
+  isSplashVisible, setIsSplashVisible, isLoggedIn, setIsLoggedIn, isAuthReady, setIsAuthReady,
+  activeTab, setActiveTab, isAdmin, setIsAdmin 
+}: any) {
+  const location = useLocation();
+  const { 
+    setECoinBalance, setNewsText, setTelegramLink, setInstagramLink, 
+    setTutorialVideos, setBanners, setCareIds, setNewbieRewardAmount,
+    setTodayProfit, setTotalBuyAmount, setHasBoughtAnyAmount,
+    setIsTelegramJoined, setIsInstagramFollowed, setNewbieRewardClaimed,
+    setShortId, setMobile, setIsAutoSellEnabled, setIsBoostEnabled, setLastAutoSellTime,
+    setAppDomain
+  } = useAppStore();
+
+  useEffect(() => {
+    console.log("Current route on app load:", location.pathname);
+  }, []);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsSplashVisible(false);
     }, 2000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [setIsSplashVisible]);
 
   useEffect(() => {
-    // Handle invitation link
-    const path = window.location.pathname;
-    if (path.startsWith('/rs/')) {
-      const code = path.split('/rs/')[1];
-      if (code) {
-        localStorage.setItem('pending_invitation_code', code);
-        // Redirect to root to show Auth component
-        window.history.replaceState({}, '', '/');
-      }
-    }
-
     // Sync global settings
     const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
       if (snapshot.exists()) {
@@ -65,13 +91,14 @@ export default function App() {
         if (data.banners) setBanners(data.banners);
         if (data.careIds) setCareIds(data.careIds);
         if (data.newbieRewardAmount) setNewbieRewardAmount(data.newbieRewardAmount);
+        if (data.appDomain) setAppDomain(data.appDomain);
       }
     }, (error) => {
       console.error("Error syncing global settings:", error);
     });
 
     return () => unsubSettings();
-  }, [setNewsText, setTelegramLink, setInstagramLink, setTutorialVideos, setBanners, setCareIds, setNewbieRewardAmount]);
+  }, [setNewsText, setTelegramLink, setInstagramLink, setTutorialVideos, setBanners, setCareIds, setNewbieRewardAmount, setAppDomain]);
 
   useEffect(() => {
     let unsubUser: (() => void) | undefined;
@@ -155,26 +182,9 @@ export default function App() {
     setIsAdmin, setECoinBalance, setTodayProfit, 
     setTotalBuyAmount, setHasBoughtAnyAmount,
     setIsTelegramJoined, setIsInstagramFollowed,
-    setNewbieRewardClaimed, setShortId, setMobile
+    setNewbieRewardClaimed, setShortId, setMobile,
+    setIsLoggedIn, setIsAuthReady
   ]);
-
-  // Handle hash routing for admin panel
-  useEffect(() => {
-    const handleHashChange = () => {
-      if (window.location.hash === '#admin' && isAdmin) {
-        setActiveTab('admin');
-      } else if (activeTab === 'admin' && !isAdmin) {
-        setActiveTab('home');
-        window.location.hash = '';
-      }
-    };
-
-    window.addEventListener('hashchange', handleHashChange);
-    // Initial check
-    handleHashChange();
-
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [isAdmin, activeTab]);
 
   if (!isAuthReady) {
     return (
@@ -195,51 +205,57 @@ export default function App() {
         {/* Mobile App Container */}
         <div className="w-full max-w-md h-[100dvh] bg-white relative flex flex-col overflow-hidden shadow-xl sm:rounded-3xl sm:h-[90vh] sm:border border-slate-300">
           
-          {!isLoggedIn ? (
-            <Auth onLogin={() => setIsLoggedIn(true)} />
-          ) : (
-            <>
-              <AutoSellManager />
-              <div className="flex-1 overflow-y-auto scroll-smooth bg-slate-50">
-                {activeTab === 'home' && <Home onNavigate={(tab) => setActiveTab(tab)} />}
-                {activeTab === 'buy' && <Buy />}
-                {activeTab === 'upi' && <UPI />}
-                {activeTab === 'team' && <Team />}
-                {activeTab === 'mine' && <Profile 
-                  onNavigate={(tab) => setActiveTab(tab)}
-                  onLogout={() => {
-                    auth.signOut();
-                    useAppStore.getState().resetStore();
-                  }} 
-                />}
-                {activeTab === 'admin' && isAdmin && (
-                  <Admin onBack={() => {
-                    window.location.hash = '';
-                    setActiveTab('mine');
-                  }} />
-                )}
-              </div>
-              
-              {/* Floating Support Button - Hide on admin page */}
-              {activeTab !== 'admin' && (
-                <motion.button 
-                  drag
-                  dragConstraints={{ left: -300, right: 0, top: -600, bottom: 0 }}
-                  whileDrag={{ scale: 1.1 }}
-                  onClick={() => window.open(useAppStore.getState().telegramLink, '_blank')}
-                  className="absolute bottom-20 right-4 w-12 h-12 bg-blue-50 rounded-full shadow-md flex items-center justify-center border border-blue-100 z-40 hover:bg-blue-100 transition-colors"
-                >
-                  <HeadphonesIcon className="w-6 h-6 text-blue-700" />
-                </motion.button>
-              )}
+          <Routes>
+            <Route path="/login" element={
+              !isLoggedIn ? <Auth onLogin={() => setIsLoggedIn(true)} initialIsLogin={true} /> : <Navigate to="/" />
+            } />
+            <Route path="/rs/:refCode" element={
+              !isLoggedIn ? <Auth onLogin={() => setIsLoggedIn(true)} initialIsLogin={false} /> : <Navigate to="/" />
+            } />
+            <Route path="/" element={
+              !isLoggedIn ? <Navigate to="/login" /> : (
+                <>
+                  <AutoSellManager />
+                  <div className="flex-1 overflow-y-auto scroll-smooth bg-slate-50">
+                    {activeTab === 'home' && <Home onNavigate={(tab) => setActiveTab(tab)} />}
+                    {activeTab === 'buy' && <Buy />}
+                    {activeTab === 'upi' && <UPI />}
+                    {activeTab === 'team' && <Team />}
+                    {activeTab === 'mine' && <Profile 
+                      onNavigate={(tab) => setActiveTab(tab)}
+                      onLogout={() => {
+                        auth.signOut();
+                        useAppStore.getState().resetStore();
+                      }} 
+                    />}
+                    {activeTab === 'admin' && isAdmin && (
+                      <Admin onBack={() => {
+                        setActiveTab('mine');
+                      }} />
+                    )}
+                  </div>
+                  
+                  {/* Floating Support Button - Hide on admin page */}
+                  {activeTab !== 'admin' && (
+                    <motion.button 
+                      drag
+                      dragConstraints={{ left: -300, right: 0, top: -600, bottom: 0 }}
+                      whileDrag={{ scale: 1.1 }}
+                      onClick={() => window.open(useAppStore.getState().telegramLink, '_blank')}
+                      className="absolute bottom-20 right-4 w-12 h-12 bg-blue-50 rounded-full shadow-md flex items-center justify-center border border-blue-100 z-40 hover:bg-blue-100 transition-colors"
+                    >
+                      <HeadphonesIcon className="w-6 h-6 text-blue-700" />
+                    </motion.button>
+                  )}
 
-              {/* Hide bottom nav on admin page */}
-              {activeTab !== 'admin' && (
-                <BottomNav activeTab={activeTab as any} setActiveTab={setActiveTab as any} />
-              )}
-            </>
-          )}
-
+                  {/* Hide bottom nav on admin page */}
+                  {activeTab !== 'admin' && (
+                    <BottomNav activeTab={activeTab as any} setActiveTab={setActiveTab as any} />
+                  )}
+                </>
+              )
+            } />
+          </Routes>
         </div>
       </div>
     </ErrorBoundary>

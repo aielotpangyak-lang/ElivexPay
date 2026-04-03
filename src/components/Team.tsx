@@ -12,6 +12,7 @@ const Team = () => {
     eCoinBalance: globalECoinBalance,
     todayTeamCommission: globalTodayTeamCommission,
     dailyBonusClaimedDate: globalDailyBonusClaimedDate,
+    appDomain,
     setECoinBalance,
     setTodayTeamCommission,
     setDailyBonusClaimedDate
@@ -527,11 +528,11 @@ const Team = () => {
           <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div className="flex flex-col overflow-hidden pr-4">
               <span className="text-xs text-slate-500 font-medium mb-1">Your Direct Link</span>
-              <span className="text-sm text-slate-800 font-bold truncate">elivexpay.vercel.app/#/rs/{shortId}</span>
+              <span className="text-sm text-slate-800 font-bold truncate">{appDomain.replace(/^https?:\/\//, '')}/#/rs/{shortId}</span>
             </div>
             <button 
               onClick={() => {
-                navigator.clipboard.writeText(`elivexpay.vercel.app/#/rs/${shortId}`);
+                navigator.clipboard.writeText(`${appDomain}/#/rs/${shortId}`);
                 toast.success('Invitation link copied!');
               }}
               className="p-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-600 rounded-lg transition-colors flex items-center gap-2 shrink-0"

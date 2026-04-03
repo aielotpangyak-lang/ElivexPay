@@ -110,8 +110,8 @@ export default function AIChatbot({ onClose, onComplete }: { onClose: () => void
 
   const initChat = () => {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey === '') {
-      console.warn('Gemini API Key is missing or invalid.');
+    if (!apiKey) {
+      console.warn('Gemini API Key is missing.');
       return null;
     }
     const ai = new GoogleGenAI({ apiKey });
@@ -139,9 +139,9 @@ export default function AIChatbot({ onClose, onComplete }: { onClose: () => void
 
   const handleSend = async () => {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey === '') {
+    if (!apiKey) {
       toast.error('Gemini API Key is missing. Please set GEMINI_API_KEY in your environment variables.');
-      console.error('Gemini API Key is missing or invalid. Current value:', apiKey);
+      console.error('Gemini API Key is missing.');
       return;
     }
 

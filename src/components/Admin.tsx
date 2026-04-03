@@ -74,6 +74,7 @@ export default function Admin({ onBack }: { onBack: () => void }) {
     banners, setBanners,
     careIds, setCareIds,
     newbieRewardAmount, setNewbieRewardAmount,
+    appDomain, setAppDomain,
     setIsAdmin, refundEcoin
   } = useAppStore();
 
@@ -124,6 +125,7 @@ export default function Admin({ onBack }: { onBack: () => void }) {
   const [localNewsDate, setLocalNewsDate] = useState(useAppStore.getState().newsUpdateDate || new Date().toLocaleDateString());
   const [localTelegram, setLocalTelegram] = useState(telegramLink || '');
   const [localInstagram, setLocalInstagram] = useState(instagramLink || '');
+  const [localDomain, setLocalDomain] = useState(useAppStore.getState().appDomain || 'https://elivexpay.vercel.app');
 
   // Update local state when store changes (from Firestore sync)
   useEffect(() => {
@@ -135,7 +137,8 @@ export default function Admin({ onBack }: { onBack: () => void }) {
     setLocalNewsDate(useAppStore.getState().newsUpdateDate || new Date().toLocaleDateString());
     setLocalTelegram(telegramLink || '');
     setLocalInstagram(instagramLink || '');
-  }, [newsText, tutorialVideos, banners, careIds, newbieRewardAmount, telegramLink, instagramLink]);
+    setLocalDomain(appDomain || 'https://elivexpay.vercel.app');
+  }, [newsText, tutorialVideos, banners, careIds, newbieRewardAmount, telegramLink, instagramLink, appDomain]);
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -735,6 +738,7 @@ export default function Admin({ onBack }: { onBack: () => void }) {
         newbieRewardAmount: Number(localReward) || 200,
         telegramLink: localTelegram,
         instagramLink: localInstagram,
+        appDomain: localDomain,
         updatedAt: new Date().toISOString()
       };
 
@@ -744,6 +748,7 @@ export default function Admin({ onBack }: { onBack: () => void }) {
       useAppStore.getState().setNewsUpdateDate(localNewsDate);
       setTelegramLink(localTelegram);
       setInstagramLink(localInstagram);
+      useAppStore.getState().setAppDomain(localDomain);
       setTutorialVideos(settingsData.tutorialVideos);
       setBanners(settingsData.banners);
       setCareIds(settingsData.careIds);
@@ -946,6 +951,16 @@ export default function Admin({ onBack }: { onBack: () => void }) {
                     value={localTelegram}
                     onChange={(e) => setLocalTelegram(e.target.value)}
                     className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50 text-sm font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">App Domain (Referral Link Base)</label>
+                  <input 
+                    type="text" 
+                    value={localDomain}
+                    onChange={(e) => setLocalDomain(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50 text-sm font-medium"
+                    placeholder="https://elivexpay.vercel.app"
                   />
                 </div>
               </div>

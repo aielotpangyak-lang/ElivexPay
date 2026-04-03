@@ -1,4 +1,5 @@
 import { useState, FormEvent, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Lock, Smartphone, Loader2, ChevronRight, UserPlus, KeyRound } from 'lucide-react';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithCustomToken, EmailAuthProvider, linkWithCredential, fetchSignInMethodsForEmail } from 'firebase/auth';
 import { doc, setDoc, getDoc, query, where, getDocs, collection, updateDoc } from 'firebase/firestore';
@@ -9,13 +10,25 @@ import toast from 'react-hot-toast';
 import Logo from './Logo';
 import { handleFirestoreError, OperationType } from '../lib/firestoreErrorHandler';
 
-export default function Auth({ onLogin }: { onLogin: () => void }) {
-  const [isLogin, setIsLogin] = useState(true);
+export default function Auth({ onLogin, initialIsLogin = true }: { onLogin: () => void, initialIsLogin?: boolean }) {
+  const { refCode } = useParams();
+  const navigate = useNavigate();
+  const [isLogin, setIsLogin] = useState(initialIsLogin);
   const [mobileOrAdmin, setMobileOrAdmin] = useState('');
   const [password, setPassword] = useState('');
-  const [invitationCode, setInvitationCode] = useState(() => {
-    return localStorage.getItem('pending_invitation_code') || '';
-  });
+  const [invitationCode, setInvitationCode] = useState('');
+
+  useEffect(() => {
+    if (refCode) {
+      console.log("Extracted referral code:", refCode);
+      setInvitationCode(refCode);
+      setIsLogin(false);
+    }
+  }, [refCode]);
+
+  useEffect(() => {
+    setIsLogin(initialIsLogin);
+  }, [initialIsLogin]);
   const [otp, setOtp] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState('');
   const [showOtpNotification, setShowOtpNotification] = useState(false);
@@ -109,6 +122,7 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
       
       toast.success('Logged in successfully!');
       onLogin();
+      navigate('/');
     } catch (error: any) {
       if (error.code === 'auth/invalid-credential') {
         toast.error('Invalid mobile number or password. Please check your credentials or register first.');
@@ -227,6 +241,7 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
       setIsAdmin(false);
       toast.success('Account created successfully!');
       onLogin();
+      navigate('/');
     } catch (error: any) {
       console.error("Registration error:", error);
       if (error.code === 'auth/email-already-in-use') {
@@ -385,7 +400,13 @@ export default function Auth({ onLogin }: { onLogin: () => void }) {
         <div className="mt-6 text-center">
           <button 
             onClick={() => {
-              setIsLogin(!isLogin);
+              const newIsLogin = !isLogin;
+              setIsLogin(newIsLogin);
+              if (newIsLogin) {
+                navigate('/login');
+              } else {
+                navigate('/rs/none'); // Use a placeholder or just navigate to rs
+              }
               setPassword('');
               setMobileOrAdmin('');
               setInvitationCode('');

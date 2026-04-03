@@ -77,6 +77,8 @@ interface AppState {
   setShortId: (id: string) => void;
   mobile: string;
   setMobile: (mobile: string) => void;
+  appDomain: string;
+  setAppDomain: (domain: string) => void;
   activeAutoOrder: any | null;
   setActiveAutoOrder: (order: any | null) => void;
   addPurchase: (amount: number) => void;
@@ -158,6 +160,8 @@ export const useAppStore = create<AppState>()(
       setShortId: (shortId) => set({ shortId }),
       mobile: '',
       setMobile: (mobile) => set({ mobile }),
+      appDomain: 'https://elivexpay.vercel.app',
+      setAppDomain: (appDomain) => set({ appDomain }),
       activeAutoOrder: null,
       setActiveAutoOrder: (activeAutoOrder) => set({ activeAutoOrder }),
       todayTeamCommission: 0,
