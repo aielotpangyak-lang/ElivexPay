@@ -4,7 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, getDocFromServer, onSnapshot } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 console.log("App initialized with auth:", !!auth, "and db:", !!db);
 import ErrorBoundary from './components/ErrorBoundary';
 import Auth from './components/Auth';
@@ -16,6 +16,7 @@ import Profile from './components/Profile';
 import BottomNav from './components/BottomNav';
 import Admin from './components/Admin';
 import AutoSellManager from './components/AutoSellManager';
+import SplashScreen from './components/SplashScreen';
 import { useAppStore } from './store';
 
 type Tab = 'home' | 'buy' | 'upi' | 'team' | 'mine' | 'admin';
@@ -31,7 +32,15 @@ export default function App() {
   } = useAppStore();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isSplashVisible, setIsSplashVisible] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('home');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsSplashVisible(false);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     // Handle invitation link
@@ -177,6 +186,10 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      <AnimatePresence>
+        {isSplashVisible && <SplashScreen />}
+      </AnimatePresence>
+      
       <div className="bg-slate-200 min-h-screen flex justify-center items-center font-sans text-slate-800">
         <Toaster position="top-center" />
         {/* Mobile App Container */}

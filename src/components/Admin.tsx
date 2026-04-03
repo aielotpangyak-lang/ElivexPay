@@ -594,8 +594,8 @@ export default function Admin({ onBack }: { onBack: () => void }) {
       return;
     }
 
-    if (amount > 0 && (balanceReason.length < 20 || balanceReason.length > 30)) {
-      toast.error('Reason must be between 20-30 characters');
+    if (balanceReason.length > 30) {
+      toast.error('Reason cannot exceed 30 characters');
       return;
     }
 
@@ -612,9 +612,9 @@ export default function Admin({ onBack }: { onBack: () => void }) {
       batch.set(transRef, {
         userId,
         amount: Math.abs(amount),
-        type: amount > 0 ? 'Admin Credit' : 'Admin Debit',
+        type: amount > 0 ? 'Added' : 'Deducted',
         status: 'Completed',
-        reason: amount > 0 ? balanceReason : 'Admin adjustment',
+        reason: balanceReason || (amount > 0 ? 'Admin Credit' : 'Admin Debit'),
         createdAt: new Date().toISOString()
       });
 
@@ -623,9 +623,9 @@ export default function Admin({ onBack }: { onBack: () => void }) {
       batch.set(notifRef, {
         userId,
         title: amount > 0 ? 'Balance Added' : 'Balance Deducted',
-        message: amount > 0 
-          ? `Admin added ₹${amount}. Reason: ${balanceReason}`
-          : `Admin deducted ₹${Math.abs(amount)}.`,
+        message: balanceReason 
+          ? `Admin ${amount > 0 ? 'added' : 'deducted'} ₹${Math.abs(amount)}. Note: ${balanceReason}`
+          : `Admin ${amount > 0 ? 'added' : 'deducted'} ₹${Math.abs(amount)}.`,
         type: 'system',
         read: false,
         createdAt: new Date().toISOString()
@@ -1070,7 +1070,6 @@ export default function Admin({ onBack }: { onBack: () => void }) {
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Amount (₹)</label>
                     <input 
                       type="number"
                       value={balanceAmount}
@@ -1080,20 +1079,18 @@ export default function Admin({ onBack }: { onBack: () => void }) {
                     />
                   </div>
 
-                  {Number(balanceAmount) > 0 && (
-                    <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-2">Reason (20-30 chars)</label>
-                      <textarea 
-                        value={balanceReason}
-                        onChange={(e) => setBalanceReason(e.target.value)}
-                        placeholder="Enter reason for adding money..."
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-medium text-sm min-h-[80px]"
-                      />
-                      <div className={`text-[10px] mt-1 font-bold ${balanceReason.length >= 20 && balanceReason.length <= 30 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                        {balanceReason.length} characters (Must be 20-30)
-                      </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Note (Optional, max 30 chars)</label>
+                    <textarea 
+                      value={balanceReason}
+                      onChange={(e) => setBalanceReason(e.target.value.slice(0, 30))}
+                      placeholder="Enter note for this transaction..."
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-medium text-sm min-h-[80px]"
+                    />
+                    <div className={`text-[10px] mt-1 font-bold ${balanceReason.length <= 30 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {balanceReason.length}/30 characters
                     </div>
-                  )}
+                  </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <button 

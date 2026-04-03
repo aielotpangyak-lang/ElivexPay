@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, ChevronRight, Coins, TrendingUp, History, ArrowRightLeft, Activity, Lock, ShieldAlert, X, Copy, Check, Gift, PlaySquare, HeadphonesIcon, Send, Instagram, CheckCircle2, ArrowUpRight, ArrowDownRight, Loader2, Bell, Share2, Users, Zap, Clock, ShieldCheck } from 'lucide-react';
+import { User, ChevronRight, Coins, TrendingUp, History, ArrowRightLeft, Activity, Lock, ShieldAlert, X, Copy, Check, Gift, PlaySquare, HeadphonesIcon, Send, Instagram, CheckCircle2, ArrowUpRight, ArrowDownRight, Loader2, Bell, Share2, Users, Zap, Clock, ShieldCheck, AtSign } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { doc, getDoc, collection, query, where, getDocs, orderBy, updateDoc, setDoc, limit, onSnapshot, writeBatch, increment } from 'firebase/firestore';
 import { db, auth } from '../firebase';
@@ -33,6 +33,8 @@ export default function Profile({ onLogout, onNavigate }: { onLogout: () => void
     tutorialVideos, careIds, newbieRewardAmount,
     isTelegramJoined, setIsTelegramJoined, isInstagramFollowed, setIsInstagramFollowed,
     isVipJoined, setIsVipJoined, isUpiLinked, setIsUpiLinked,
+    accountHolderName, setAccountHolderName, upiId, setUpiId,
+    bankName, setBankName, bankAccNo, setBankAccNo, bankIfsc, setBankIfsc,
     newbieRewardClaimed, setNewbieRewardClaimed,
     todayTeamCommission, dailyBonusClaimedDate, shortId, mobile
   } = useAppStore();
@@ -46,7 +48,7 @@ export default function Profile({ onLogout, onNavigate }: { onLogout: () => void
   const [resubmittingId, setResubmittingId] = useState<string | null>(null);
   const [showRecentRequests, setShowRecentRequests] = useState(false);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [view, setView] = useState<'main' | 'activity' | 'ecoin' | 'profit' | 'buy_history' | 'sell_history' | 'newbie_reward' | 'tutorial' | 'service' | 'password' | 'notifications'>('main');
+  const [view, setView] = useState<'main' | 'activity' | 'ecoin' | 'profit' | 'buy_history' | 'sell_history' | 'newbie_reward' | 'tutorial' | 'service' | 'password' | 'notifications' | 'link_account'>('main');
   const [activityTab, setActivityTab] = useState<'Added' | 'Deducted'>('Added');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -61,6 +63,64 @@ export default function Profile({ onLogout, onNavigate }: { onLogout: () => void
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
   const [isSubmittingScreenshot, setIsSubmittingScreenshot] = useState(false);
   const [isClaiming, setIsClaiming] = useState(false);
+  const [isLinking, setIsLinking] = useState(false);
+  const [linkForm, setLinkForm] = useState({
+    accountHolderName: '',
+    upiId: '',
+    bankName: '',
+    bankAccNo: '',
+    bankIfsc: ''
+  });
+
+  useEffect(() => {
+    setLinkForm({
+      accountHolderName: accountHolderName || '',
+      upiId: upiId || '',
+      bankName: bankName || '',
+      bankAccNo: bankAccNo || '',
+      bankIfsc: bankIfsc || ''
+    });
+  }, [accountHolderName, upiId, bankName, bankAccNo, bankIfsc]);
+
+  const handleLinkAccount = async () => {
+    if (!auth.currentUser) return;
+    if (!linkForm.accountHolderName) {
+      toast.error('Account holder name is required');
+      return;
+    }
+    if (!linkForm.upiId && (!linkForm.bankName || !linkForm.bankAccNo || !linkForm.bankIfsc)) {
+      toast.error('Please provide either UPI ID or complete Bank Details');
+      return;
+    }
+
+    setIsLinking(true);
+    try {
+      const userRef = doc(db, 'users', auth.currentUser.uid);
+      const updateData = {
+        accountHolderName: linkForm.accountHolderName,
+        upiId: linkForm.upiId,
+        bankName: linkForm.bankName,
+        bankAccNo: linkForm.bankAccNo,
+        bankIfsc: linkForm.bankIfsc,
+        isUpiLinked: true
+      };
+      await updateDoc(userRef, updateData);
+      
+      setAccountHolderName(linkForm.accountHolderName);
+      setUpiId(linkForm.upiId);
+      setBankName(linkForm.bankName);
+      setBankAccNo(linkForm.bankAccNo);
+      setBankIfsc(linkForm.bankIfsc);
+      setIsUpiLinked(true);
+      
+      toast.success('Account linked successfully!');
+      setView('main');
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${auth.currentUser.uid}`);
+    } finally {
+      setIsLinking(false);
+    }
+  };
 
   const isTransactionCompleted = totalBuyAmount >= 5000;
   const allTasksCompleted = isTelegramJoined && isVipJoined && isTransactionCompleted;
@@ -241,6 +301,14 @@ export default function Profile({ onLogout, onNavigate }: { onLogout: () => void
           if (userDoc.exists()) {
             const data = userDoc.data();
             let currentShortId = data.shortId;
+
+            // Update store with payment details
+            setAccountHolderName(data.accountHolderName || '');
+            setUpiId(data.upiId || '');
+            setBankName(data.bankName || '');
+            setBankAccNo(data.bankAccNo || '');
+            setBankIfsc(data.bankIfsc || '');
+            setIsUpiLinked(data.isUpiLinked || false);
 
             if (!currentShortId) {
               const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -457,6 +525,7 @@ export default function Profile({ onLogout, onNavigate }: { onLogout: () => void
     { id: 'buy_history', icon: <History className="w-5 h-5 text-blue-500" />, label: "Buy History" },
     { id: 'sell_history', icon: <ArrowRightLeft className="w-5 h-5 text-orange-500" />, label: "Sell History" },
     { id: 'activity', icon: <Activity className="w-5 h-5 text-purple-500" />, label: "Activity" },
+    { id: 'link_account', icon: <ShieldCheck className="w-5 h-5 text-indigo-500" />, label: "Link Account" },
     { id: 'newbie_reward', icon: <Gift className="w-5 h-5 text-rose-500" />, label: "Newbie Bonus" },
     { id: 'team', icon: <User className="w-5 h-5 text-blue-700" />, label: "My Team" },
     { id: 'service', icon: <HeadphonesIcon className="w-5 h-5 text-teal-500" />, label: "Service" },
@@ -647,14 +716,132 @@ export default function Profile({ onLogout, onNavigate }: { onLogout: () => void
                       <span className="text-xl font-black text-slate-900 tracking-tighter">₹{req.amount.toFixed(2)}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                    <ShieldCheck className="w-3 h-3" />
-                    <span>Transaction ID: {req.id.slice(-12).toUpperCase()}</span>
+                  <div className="flex flex-col gap-2 text-[10px] font-bold text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-3 h-3" />
+                      <span>Transaction ID: {req.id.slice(-12).toUpperCase()}</span>
+                    </div>
+                    {(req as any).accountDetails && (
+                      <div className="flex items-center gap-2 text-indigo-600">
+                        <AtSign className="w-3 h-3" />
+                        <span>
+                          {(req as any).accountDetails.method === 'UPI' 
+                            ? `UPI: ${(req as any).accountDetails.upiId}`
+                            : `Bank: ${(req as any).accountDetails.bankName} (${(req as any).accountDetails.bankAccNo})`}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
             )}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'link_account') {
+    return (
+      <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+        <div className="flex items-center px-4 py-4 bg-white border-b border-slate-100">
+          <button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded-full mr-2">
+            <X className="w-6 h-6 text-slate-500" />
+          </button>
+          <h2 className="font-bold text-slate-900 text-lg">Link Payment Account</h2>
+        </div>
+        <div className="p-6 space-y-6">
+          <div className="bg-indigo-600 p-6 rounded-[2rem] text-white shadow-xl shadow-indigo-100 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -mr-12 -mt-12 blur-2xl"></div>
+            <div className="relative z-10 flex items-center gap-4">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                <ShieldCheck className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black tracking-tight">Secure Linking</h3>
+                <p className="text-indigo-100 text-[10px] font-bold uppercase tracking-wider">Your details are encrypted and safe</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Account Holder Name</label>
+              <input 
+                type="text" 
+                value={linkForm.accountHolderName} 
+                onChange={(e) => setLinkForm({...linkForm, accountHolderName: e.target.value})} 
+                placeholder="Enter full name" 
+                className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" 
+              />
+            </div>
+
+            <div className="pt-2">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="h-[1px] flex-1 bg-slate-200"></div>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">UPI Details</span>
+                <div className="h-[1px] flex-1 bg-slate-200"></div>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">UPI ID</label>
+                <input 
+                  type="text" 
+                  value={linkForm.upiId} 
+                  onChange={(e) => setLinkForm({...linkForm, upiId: e.target.value})} 
+                  placeholder="example@upi" 
+                  className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" 
+                />
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="h-[1px] flex-1 bg-slate-200"></div>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bank Details</span>
+                <div className="h-[1px] flex-1 bg-slate-200"></div>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Bank Name</label>
+                  <input 
+                    type="text" 
+                    value={linkForm.bankName} 
+                    onChange={(e) => setLinkForm({...linkForm, bankName: e.target.value})} 
+                    placeholder="e.g. HDFC Bank" 
+                    className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" 
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Account Number</label>
+                  <input 
+                    type="text" 
+                    value={linkForm.bankAccNo} 
+                    onChange={(e) => setLinkForm({...linkForm, bankAccNo: e.target.value})} 
+                    placeholder="Enter account number" 
+                    className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" 
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">IFSC Code</label>
+                  <input 
+                    type="text" 
+                    value={linkForm.bankIfsc} 
+                    onChange={(e) => setLinkForm({...linkForm, bankIfsc: e.target.value})} 
+                    placeholder="Enter IFSC code" 
+                    className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" 
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button 
+            disabled={isLinking} 
+            onClick={handleLinkAccount} 
+            className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-base shadow-xl shadow-indigo-100 active:scale-95 transition-all flex items-center justify-center gap-2"
+          >
+            {isLinking ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Link Account'}
+          </button>
         </div>
       </div>
     );
@@ -803,7 +990,19 @@ export default function Profile({ onLogout, onNavigate }: { onLogout: () => void
               <div key={t.id} className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center ${activityTab === 'Added' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{activityTab === 'Added' ? <ArrowUpRight className="w-6 h-6" /> : <ArrowDownRight className="w-6 h-6" />}</div>
-                  <div><h4 className="text-sm font-bold text-slate-800">{t.reason || t.type}</h4><p className="text-xs text-slate-400 font-medium">{new Date(t.createdAt).toLocaleString()}</p></div>
+                  <div>
+                    <h4 className="text-sm font-black text-slate-900 tracking-tight">
+                      {t.type === 'Added' ? 'Added' : t.type === 'Deducted' ? 'Deducted' : (t.reason || t.type)}
+                    </h4>
+                    {t.reason && t.reason !== t.type && (
+                      <p className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider mt-0.5">
+                        Note: {t.reason}
+                      </p>
+                    )}
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                      {new Date(t.createdAt).toLocaleString()}
+                    </p>
+                  </div>
                 </div>
                 <div className="text-right"><span className={`text-base font-black ${activityTab === 'Added' ? 'text-emerald-600' : 'text-rose-600'}`}>{activityTab === 'Added' ? '+' : '-'}₹{(t.amount || t.total || 0).toFixed(2)}</span></div>
               </div>

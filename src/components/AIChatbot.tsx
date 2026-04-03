@@ -6,8 +6,6 @@ import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import Markdown from 'react-markdown';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-
 const US_UK_NAMES = [
   "James Smith", "Michael Johnson", "Robert Williams", "David Brown", "Richard Jones", "Joseph Garcia", "Thomas Miller", "Charles Davis", "Christopher Rodriguez", "Daniel Martinez",
   "Matthew Hernandez", "Anthony Lopez", "Mark Gonzalez", "Donald Wilson", "Steven Anderson", "Paul Thomas", "Andrew Taylor", "Joshua Moore", "Kenneth Jackson", "Kevin Martin",
@@ -102,13 +100,7 @@ export default function AIChatbot({ onClose, onComplete }: { onClose: () => void
     localStorage.removeItem('ai_chat_history');
     const initialMessages: Message[] = [{ role: 'bot', text: 'Hello! I can help you generate 100 orders. What is the order size range (e.g., 300-10,000)?' }];
     setMessages(initialMessages);
-    const newChat = ai.chats.create({
-      model: 'gemini-3-flash-preview',
-      config: {
-        systemInstruction: SYSTEM_PROMPT + "\n\nNames to use:\n" + US_UK_NAMES.join(", "),
-      },
-    });
-    setChat(newChat);
+    initChat();
   };
 
   const loadSession = (session: Message[]) => {
@@ -117,6 +109,12 @@ export default function AIChatbot({ onClose, onComplete }: { onClose: () => void
   };
 
   const initChat = () => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey === '') {
+      console.warn('Gemini API Key is missing or invalid.');
+      return null;
+    }
+    const ai = new GoogleGenAI({ apiKey });
     const newChat = ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: {
@@ -140,6 +138,13 @@ export default function AIChatbot({ onClose, onComplete }: { onClose: () => void
   }, []);
 
   const handleSend = async () => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey === '') {
+      toast.error('Gemini API Key is missing. Please set GEMINI_API_KEY in your environment variables.');
+      console.error('Gemini API Key is missing or invalid. Current value:', apiKey);
+      return;
+    }
+
     let currentChat = chat;
     if (!currentChat) {
       currentChat = initChat();
@@ -171,8 +176,15 @@ export default function AIChatbot({ onClose, onComplete }: { onClose: () => void
         }
       }
     } catch (error) {
-      console.error('Chat error:', error);
-      toast.error('Failed to get response from AI');
+      console.error('Chat error details:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('API_KEY_INVALID')) {
+        toast.error('Invalid API Key. Please check your GEMINI_API_KEY.');
+      } else if (errorMessage.includes('SAFETY')) {
+        toast.error('Response blocked by safety filters.');
+      } else {
+        toast.error('Failed to get response from AI. Check console for details.');
+      }
     } finally {
       setLoading(false);
     }

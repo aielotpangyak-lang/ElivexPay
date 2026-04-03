@@ -9,7 +9,8 @@ export default function AutoSellManager() {
   const { 
     isAutoSellEnabled, isBoostEnabled, eCoinBalance, 
     lastAutoSellTime, setLastAutoSellTime, sellEcoin, refundEcoin,
-    activeAutoOrder, setActiveAutoOrder
+    activeAutoOrder, setActiveAutoOrder,
+    upiId, accountHolderName, bankName, bankAccNo, bankIfsc
   } = useAppStore();
 
   // Listen for active auto-sell orders
@@ -55,23 +56,52 @@ export default function AutoSellManager() {
 
       if (now.getTime() - lastTime.getTime() >= waitTime && eCoinBalance >= 500) {
         try {
-          // Get a Buy UPI account to use for selling
-          const q = query(
-            collection(db, 'upi_accounts'),
-            where('userId', '==', auth.currentUser.uid),
-            where('type', '==', 'Buy'),
-            where('status', '==', 'Active'),
-            limit(1)
-          );
-          const upiSnap = await getDocs(q);
+          let accountDetails: any = null;
+          let accountId = 'profile_linked';
+
+          // Prefer profile linked account
+          if (upiId) {
+            accountDetails = {
+              upiId,
+              name: accountHolderName || 'Linked Account',
+              method: 'UPI'
+            };
+          } else if (bankAccNo) {
+            accountDetails = {
+              bankAccNo,
+              bankName,
+              bankIfsc,
+              name: accountHolderName || 'Linked Bank Account',
+              method: 'Bank'
+            };
+          } else {
+            // Fallback to upi_accounts collection
+            const q = query(
+              collection(db, 'upi_accounts'),
+              where('userId', '==', auth.currentUser.uid),
+              where('type', '==', 'Buy'),
+              where('status', '==', 'Active'),
+              limit(1)
+            );
+            const upiSnap = await getDocs(q);
+            
+            if (!upiSnap.empty) {
+              const upiData = upiSnap.docs[0].data();
+              accountId = upiSnap.docs[0].id;
+              accountDetails = {
+                ...upiData,
+                method: 'UPI',
+                name: 'Auto Sell (Buy UPI)'
+              };
+            }
+          }
           
-          if (upiSnap.empty) {
-            // No Buy UPI linked, can't auto-sell
+          if (!accountDetails) {
+            // No account linked, can't auto-sell
             return;
           }
 
-          const upiData = upiSnap.docs[0].data();
-          const sellAmount = 500; // Fixed amount for auto-sell as per requirement "sufficient balance hoga joki hoga 500 ECoin"
+          const sellAmount = 500;
 
           // Deduct balance
           await updateDoc(doc(db, 'users', auth.currentUser.uid), {
@@ -83,12 +113,8 @@ export default function AutoSellManager() {
           await addDoc(collection(db, 'sell_requests'), {
             userId: auth.currentUser.uid,
             amount: sellAmount,
-            accountId: upiSnap.docs[0].id,
-            accountDetails: {
-              ...upiData,
-              method: 'UPI', // Auto-sell always uses UPI
-              name: 'Auto Sell (Buy UPI)'
-            },
+            accountId: accountId,
+            accountDetails: accountDetails,
             status: 'Pending',
             isAutoSell: true,
             createdAt: now.toISOString()
@@ -130,24 +156,20 @@ export default function AutoSellManager() {
     if (!auth.currentUser) return;
 
     try {
-      const isConfirmed = Math.random() > 0.3; // 70% success rate
-      const newStatus = isConfirmed ? 'Approved' : 'Rejected';
+      // User requested: "After five minutes are completed, it will automatically be rejected."
+      const newStatus = 'Rejected';
 
       await updateDoc(doc(db, 'sell_requests', order.id), {
         status: newStatus,
         completedAt: new Date().toISOString()
       });
 
-      if (!isConfirmed) {
-        // Refund balance if rejected
-        await updateDoc(doc(db, 'users', auth.currentUser.uid), {
-          eCoinBalance: increment(order.amount)
-        });
-        refundEcoin(order.amount);
-        toast.error('Auto-sell order rejected. Balance refunded.');
-      } else {
-        toast.success('Auto-sell order confirmed!');
-      }
+      // Refund balance since it's rejected
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+        eCoinBalance: increment(order.amount)
+      });
+      refundEcoin(order.amount);
+      toast.error('Auto-sell order completed (Rejected). Balance refunded.');
     } catch (error) {
       console.error("Error completing auto-sell order:", error);
     }

@@ -20,12 +20,27 @@ export default function Home({ onNavigate }: { onNavigate?: (tab: 'buy' | 'upi' 
     return () => clearInterval(interval);
   }, [banners.length]);
 
-  const bannerImages = banners.length > 0 ? banners : ["https://picsum.photos/seed/elivexpay/800/400"];
+  const bannerImages = banners.length > 0 ? banners : [
+    "https://picsum.photos/seed/elivexpay1/800/400",
+    "https://picsum.photos/seed/elivexpay2/800/400",
+    "https://picsum.photos/seed/elivexpay3/800/400"
+  ];
 
   return (
     <div className="flex flex-col pb-24 bg-slate-50 min-h-screen">
+      {/* App Header */}
+      <div className="px-6 pt-8 pb-2 flex flex-col items-center">
+        <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-xl shadow-indigo-100/50 border border-slate-100 mb-3">
+          <Logo className="w-10 h-10" />
+        </div>
+        <h1 className="text-3xl font-black text-slate-900 tracking-tighter">ELiveXPay</h1>
+        <p className="text-slate-400 font-black text-[10px] uppercase tracking-[0.3em] mt-1 text-center">
+          Premium E-coin Exchange, Secure, Instant, Reliable
+        </p>
+      </div>
+
       {/* Banner Section */}
-      <div className="px-4 mt-6">
+      <div className="px-4 mt-4">
         <div className="relative h-44 w-full rounded-[2rem] overflow-hidden shadow-xl border border-slate-200">
           {bannerImages.map((img, idx) => (
             <div 
@@ -38,9 +53,14 @@ export default function Home({ onNavigate }: { onNavigate?: (tab: 'buy' | 'upi' 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-slate-900/20 to-transparent flex flex-col justify-end p-6">
-                <h2 className="text-white font-black text-2xl leading-tight tracking-tight">Premium E-Coin Exchange</h2>
-                <p className="text-slate-300 text-[10px] font-black uppercase tracking-[0.2em]">Secure • Instant • Reliable</p>
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-slate-900/40 to-slate-900/60 flex flex-col items-center justify-end p-6">
+                <div className="w-full flex justify-between items-center">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                    <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">System Online</span>
+                  </div>
+                  <span className="text-[8px] font-black text-white/40 uppercase tracking-widest">v2.5.6.7</span>
+                </div>
               </div>
             </div>
           ))}
@@ -137,7 +157,9 @@ export default function Home({ onNavigate }: { onNavigate?: (tab: 'buy' | 'upi' 
                   </div>
                   <div>
                     <h4 className="text-white font-black text-sm tracking-tight">Auto-Selling Active</h4>
-                    <p className="text-indigo-300 text-[10px] font-bold uppercase tracking-wider">System is processing orders</p>
+                    <p className="text-indigo-300 text-[10px] font-bold uppercase tracking-wider">
+                      {activeAutoOrder?.accountDetails?.upiId ? `UPI: ${activeAutoOrder.accountDetails.upiId}` : 'System is processing orders'}
+                    </p>
                   </div>
                 </div>
                 

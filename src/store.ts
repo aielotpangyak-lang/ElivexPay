@@ -53,6 +53,16 @@ interface AppState {
   setIsInstagramFollowed: (followed: boolean) => void;
   isVipJoined: boolean;
   setIsVipJoined: (joined: boolean) => void;
+  accountHolderName: string;
+  setAccountHolderName: (name: string) => void;
+  upiId: string;
+  setUpiId: (id: string) => void;
+  bankName: string;
+  setBankName: (name: string) => void;
+  bankAccNo: string;
+  setBankAccNo: (accNo: string) => void;
+  bankIfsc: string;
+  setBankIfsc: (ifsc: string) => void;
   isScreenshotSubmitted: boolean;
   setIsScreenshotSubmitted: (submitted: boolean) => void;
   isAutoSellEnabled: boolean;
@@ -124,6 +134,16 @@ export const useAppStore = create<AppState>()(
       setIsInstagramFollowed: (isInstagramFollowed) => set({ isInstagramFollowed }),
       isVipJoined: false,
       setIsVipJoined: (isVipJoined) => set({ isVipJoined }),
+      accountHolderName: '',
+      setAccountHolderName: (accountHolderName) => set({ accountHolderName }),
+      upiId: '',
+      setUpiId: (upiId) => set({ upiId }),
+      bankName: '',
+      setBankName: (bankName) => set({ bankName }),
+      bankAccNo: '',
+      setBankAccNo: (bankAccNo) => set({ bankAccNo }),
+      bankIfsc: '',
+      setBankIfsc: (bankIfsc) => set({ bankIfsc }),
       isScreenshotSubmitted: false,
       setIsScreenshotSubmitted: (isScreenshotSubmitted) => set({ isScreenshotSubmitted }),
       isAutoSellEnabled: false,
